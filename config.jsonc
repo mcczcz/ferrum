@@ -1,0 +1,10 @@
+{
+    // 配置格式版本，与 src/Config/Config.h 中的字段保持一致。
+    "version": 1,
+
+    // 日志级别：Off、Fatal、Error、Warn、Info、Debug、Trace。
+    "logLevel": "Info",
+
+    // 界面及日志语言，对应 lang 目录中的语言文件名（不含扩展名）。
+    "language": "zh_CN"
+}

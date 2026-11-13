@@ -1,0 +1,18 @@
+{
+    "mod.loaded": "Mod loaded",
+    "mod.enabled": "Mod enabled",
+    "mod.unloaded": "Mod unloaded",
+    "config.not_found": "Config file not found, creating a new one at: {}",
+    "config.load_error": "Failed to load config file.",
+    "config.parse_error": "Failed to parse config file: {}. Please check for syntax errors.",
+    "config.missing_keys": "Your config file is missing some keys. The mod will use default values for them.",
+    "config.missing_keys_hint": "This won't affect functionality, but you may want to add them to your config.jsonc:",
+    "config.missing_key_item": "- {}",
+    "config.regenerate_hint": "You can also delete your config.jsonc to regenerate the config file on next startup.",
+    "config.updated_missing_keys": "Auto-inserted {} missing config key(s) while preserving existing comments and key order.",
+    "config.update_missing_keys_failed": "Failed to auto-insert missing config keys. Please check config.jsonc manually.",
+    "config.save_error": "Failed to save config file: {}",
+    "i18n.loaded": "Loaded language: {}",
+    "i18n.load_error": "Failed to load language file {}: {}",
+    "i18n.lang_not_found": "Language {} not found, using default: {}"
+}

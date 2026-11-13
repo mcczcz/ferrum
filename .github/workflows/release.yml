@@ -1,0 +1,124 @@
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check release tag matches tooth.json version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_REF_TYPE" != "tag" ]]; then
+            echo "::error::Select a version tag when manually running the release workflow."
+            exit 1
+          fi
+          version=$(jq -er '.version | strings | select(length > 0)' tooth.json)
+          if [[ "$RELEASE_TAG" != "v$version" ]]; then
+            echo "::error::Release tag '$RELEASE_TAG' must match tooth.json version 'v$version'."
+            exit 1
+          fi
+
+  build:
+    needs: validate-version
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target_type:
+          - server
+          - client
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/AppData/Local/.xmake
+          key: xmake-${{ hashFiles('xmake.lua') }}
+          restore-keys: |
+            xmake-
+
+      - name: Setup LLVM
+        uses: ZhongRuoyu/setup-llvm@v0
+        with:
+          llvm-version: 22
+      - run: |
+          xmake repo -u
+
+      - run: |
+          xmake f -a x64 -m release -p windows --toolchain=clang-cl --target_type=${{ matrix.target_type }} -y
+
+      - run: |
+          xmake -w -y
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ github.event.repository.name }}-${{ github.sha }}-${{ matrix.target_type }}-windows-x64
+          path: |
+            bin/
+
+  update-release-notes:
+    needs: validate-version
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: extract-release-notes
+        uses: ffurrer2/extract-release-notes@v2
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            ${{ steps.extract-release-notes.outputs.release_notes }}
+
+  upload-to-release:
+    needs:
+      - build
+      - update-release-notes
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        target_type:
+          - server
+          - client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: ${{ github.event.repository.name }}-${{ github.sha }}-${{ matrix.target_type }}-windows-x64
+          path: artifact
+
+      - run: |
+          cp CHANGELOG.md LICENSE README.md artifact/
+
+      - run: |
+          zip -r ../${{ github.event.repository.name }}-${{ matrix.target_type }}-windows-x64.zip *
+        working-directory: artifact
+
+      - name: Calculate SHA256
+        id: calculate-sha256
+        run: |
+          echo release=$(sha256sum ${{ github.event.repository.name }}-${{ matrix.target_type }}-windows-x64.zip | awk '{print $1}') >> $GITHUB_OUTPUT
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          append_body: true
+          body: |
+            | File | SHA256 |
+            | ---- | ------ |
+            | ${{ github.event.repository.name }}-${{ matrix.target_type }}-windows-x64.zip | ${{ steps.calculate-sha256.outputs.release }} |
+          files: |
+            ${{ github.event.repository.name }}-${{ matrix.target_type }}-windows-x64.zip

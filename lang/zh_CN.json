@@ -1,0 +1,18 @@
+{
+    "mod.loaded": "模组已加载",
+    "mod.enabled": "模组已启用",
+    "mod.unloaded": "模组已卸载",
+    "config.not_found": "配置文件未找到，正在创建新文件: {}",
+    "config.load_error": "加载配置文件失败。",
+    "config.parse_error": "解析配置文件失败: {}。请检查语法错误。",
+    "config.missing_keys": "您的配置文件缺少一些键。模组将使用默认值。",
+    "config.missing_keys_hint": "这不会影响功能，但您可能需要将它们添加到 config.jsonc:",
+    "config.missing_key_item": "- {}",
+    "config.regenerate_hint": "您也可以删除 config.jsonc，在下次启动时重新生成配置文件。",
+    "config.updated_missing_keys": "已自动补齐 {} 个缺失配置项，并保留原有注释与已有项顺序。",
+    "config.update_missing_keys_failed": "自动补齐缺失配置项失败，请手动检查 config.jsonc。",
+    "config.save_error": "保存配置文件失败: {}",
+    "i18n.loaded": "已加载语言: {}",
+    "i18n.load_error": "加载语言文件失败 {}: {}",
+    "i18n.lang_not_found": "语言 {} 未找到，使用默认语言: {}"
+}
