@@ -7,8 +7,8 @@
 ## 1. 构建管线架构（xmake + Cargo 混合联编）
 
 `ferrum-loader.dll` 由两部分静态链接合并为一个标准 LeviLamina `native` 插件：
-1. **Rust 核心运行时（`crates/ferrum-host`）**：由 Cargo 编译为静态库 `ferrum_host.lib`（`crate-type = ["staticlib"]`）。
-2. **C++20 适配垫片（`cpp-shim/`）**：由 xmake 使用 `clang-cl` 编译，链接 `LeviLamina`（通过 `levibuildscript` / `xmake-repo` 拉取）以及刚才生成的 `ferrum_host.lib`（加上 Windows 系统依赖库 `ws2_32`, `userenv`, `ntdll`, `bcrypt`, `advapi32`）。
+1. **Rust 核心运行时（`crates/ferrum-host`）**：由 Cargo 编译为静态库 `ferrum_host.lib`（`crate-type = ["staticlib", "rlib"]`，后者供单元测试使用）。
+2. **C++20 适配垫片（`cpp-shim/`）**：由 xmake 使用 `clang-cl` 编译，链接 `LeviLamina`（通过 `levibuildscript` / `xmake-repo` 拉取）以及刚才生成的 `ferrum_host.lib`（加上 Windows 系统依赖库 `kernel32`、`ntdll`、`userenv`、`ws2_32`、`dbghelp`、`synchronization`、`advapi32`、`bcrypt`）。
 
 ```text
 [Cargo Build]                                 [xmake Build (clang-cl, C++20)]
@@ -48,12 +48,12 @@ cargo xtask layout-lock --check
 ```
 
 ### 3.2 完整构建 `ferrum-loader.dll`
-`xmake.lua` 内置 `before_build` 钩子自动触发对应模式（debug/release）的 `cargo build -p ferrum-host`：
+`xmake.lua` 内置 `before_build` 钩子自动触发对应模式（debug/release）的 `cargo build -p ferrum-host --locked` 并执行 `cargo xtask cbindgen --check`：
 ```powershell
 # 配置构建目标（server 或 client）
 xmake f -p windows -a x64 -m release -y --target_type=server
 
-# 执行编译与打包输出至 build/ferrum-loader/
+# 执行编译与打包输出至 bin/ferrum-loader/
 xmake
 ```
 
@@ -67,5 +67,4 @@ xmake
 3. 可在同一个调用栈中无缝单步跨越：
    `BDS C++ Hook` -> `cpp-shim (C++)` -> `ferrum-host (Rust)` -> `example_mod (Rust)`！
 4. **验证卸载行为**：在调试器模块窗口（Modules View）观察执行 `ll mod unload <example_mod>` 后的模块列表：
-   - 普通模组：镜像（影子副本 `.ferrum-shadow/<name>-<hash>.dll`）**应当保留**，这是默认行为；
-   - 声明了 `hot_unload_safe` 的模组：镜像应当消失；若未消失，查看 `ferrum-loader` 日志中是否有“检测到线程仍在模组镜像内，放弃 FreeLibrary”的警告。
+   - 当前（M1）所有模组的影子副本（`.ferrum-shadow/<name>-<hash>.dll`）均会**保留镜像**（声明 `hot_unload_safe` 仅记录 debug 提示，真正 `FreeLibrary` 路径在 M5 实现）。

@@ -41,7 +41,9 @@ Ferrum 二级模组完全复用 LeviLamina 原生的 `manifest.json` 模型与 `
 
 ---
 
-## 2. 跨模组交互与扩展接口（Mod-to-Mod Interop）
+## 2. 跨模组交互与扩展接口（Mod-to-Mod Interop，M4 规划）
+
+> **实现状态提示**：以下服务注册总线（`ServiceHandle` / `ServiceGuard`）与自定义事件广播机制将在 **M2–M4** 逐步落地；当前（**M1**）尚未提供跨模组运行时服务查询 API。
 
 由于不同 Rust 模组各自是独立的 `cdylib`（可能由不同版本 `rustc` 编译，且各自持有独立堆），**两个 Ferrum 模组之间同样严禁直接传递 `repr(Rust)` 对象或裸函数指针**！
 

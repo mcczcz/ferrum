@@ -31,7 +31,8 @@
    - 布尔值用 `FfiBool`，封闭 `enum` 一律改为 `#[repr(transparent)] pub struct XxxKind(pub u32);`；
    - 回调使用该类别专属的强类型回调结构体，不使用 `*const c_void` 存放函数指针。
 3. **更新布局锁与 C 头文件**：
-   - 运行 `cargo xtask layout-lock` 追加新字段的 `offset_of!` 断言，确认旧字段偏移一字未改，并递增 `FERRUM_ABI_CURRENT_VERSION.minor`；
+   - 在 `crates/ferrum-abi/src/version.rs` 中递增 `FERRUM_ABI_MINOR`；
+   - 若新增了类型或尾追加了字段，在 `xtask/src/layout_lock.rs` 登记后运行 `cargo xtask layout-lock` 追加断言，确认旧字段偏移一字未改；
    - 运行 `cargo xtask cbindgen` 重新生成 `cpp-shim/include/ferrum/ferrum_abi.h`，与 ABI 改动一并提交。
 
 ---
@@ -41,29 +42,29 @@
 在 `cpp-shim/src/<domain>_shim.cpp` 中编写 `extern "C"` 导出给 `ferrum-host` 的内部桥接函数（类型来自 cbindgen 生成的 `ferrum/ferrum_abi.h`）：
 
 ```cpp
-extern "C" FerrumStatus ferrum_shim_player_get_ping(
+static FerrumStatus shimPlayerGetPing(
     FerrumActorRuntimeId target,
     int32_t*             outPingMs
 ) noexcept {
     if (!outPingMs) {
-        return FERRUM_STATUS_NULL_POINTER;
+        return FerrumStatus_NULL_POINTER;
     }
     try {
         // 每次调用按 ID 重新解析，指针只在本函数体内存活
         auto* player = ferrum::shim::resolvePlayer(target);
         if (!player) {
-            return FERRUM_STATUS_NOT_FOUND;
+            return FerrumStatus_NOT_FOUND;
         }
         // 调用 LeviLamina / BDS 稳定接口
         auto netId = player->getNetworkIdentifier();
         if (auto peer = ll::service::getRakPeer(); peer) {
             *outPingMs = peer->GetAveragePing(netId.mGuid);
-            return FERRUM_STATUS_OK;
+            return FerrumStatus_OK;
         }
-        return FERRUM_STATUS_SERVICE_UNAVAILABLE;
+        return FerrumStatus_SERVICE_UNAVAILABLE;
     } catch (...) {
         ferrum::shim::setLastErrorFromCurrentException();
-        return FERRUM_STATUS_CPP_EXCEPTION;
+        return FerrumStatus_CPP_EXCEPTION;
     }
 }
 ```
@@ -77,12 +78,17 @@ extern "C" FerrumStatus ferrum_shim_player_get_ping(
 
 ## 步骤 4：在 `crates/ferrum-host` 装配 VTable 与校验
 
-1. 在 `ferrum-host/src/ffi_imports.rs` 声明内部 `ferrum_shim_*` `extern "C"` 符号（并在单元测试配置下提供 Mock 实现以便纯 `cargo test` 运行）。同时在 `ferrum-host-mock` 中补充该函数的假实现，供下游模组测试使用。
-2. 在 VTable 实现函数中完成：
-   - 主线程断言（Debug/安全检查）；
-   - 代数句柄查表与 `ModId` 归属校验（若涉及句柄）；
-   - 调用 `ferrum_shim_*` 并将任何错误详情存入当前线程 `LastErrorSlot`。
-3. 将该函数挂载到静态全局 `PLAYER_API_V1` 实例对应的新槽位上。
+1. 在 `crates/ferrum-host/src/shim.rs` 的 `FerrumShimApi` 末尾追加对应函数指针字段（并在 `cpp-shim/src/ferrum/FerrumModManager.cpp` 的 `shimApi` 中注入实现，同步更新 `cargo xtask cbindgen`）。同时在 `crates/ferrum-host-mock` 中补充该函数的假实现，供下游模组测试使用。
+2. 在 `crates/ferrum-host/src/vtable.rs` 的 VTable 实现函数中以 `guard(|| ...)` 包裹并完成：
+   - 主线程断言（`vtable::is_main_thread()`）；
+   - 代数句柄查表与归属校验（若涉及句柄）；
+   - 通过 `shim::get()` 回调 C++ 垫片，并将错误详情存入当前线程 `LastErrorSlot`（`last_error::fail`）。
+3. 将该函数挂载到静态全局子表（如 `CORE_V1` 或对应领域子表）的新槽位上。
+
+---
+
+### 4. 安全注释规范（`unsafe` 块）
+- `ferrum-sdk` 与 `ferrum-host` 中每一处 `unsafe { ... }` 块上方**必须**附带 `// SAFETY: ...` 注释（workspace lint 已启用 `undocumented_unsafe_blocks = "deny"` 与 `unsafe_op_in_unsafe_fn = "deny"`），逐条论证指针非空性、对齐、生命周期边界、线程归属与别名独占性不变式。
 
 ---
 

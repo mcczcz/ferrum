@@ -42,12 +42,12 @@ Ferrum 在物理产物上严格切分为**宿主加载器（`ferrum-loader.dll`�
 | 层级 / Crate | 语言与产物类型 | 允许的依赖 | 核心职责与禁令 |
 | :--- | :--- | :--- | :--- |
 | **`cpp-shim`** | C++20 源码（由 xmake 编译并链接进 `ferrum-loader.dll`） | `LeviLamina`、`src/mc`、C++ 标准库 | **唯一允许 `#include "ll/..."` 和 `"mc/..."` 的模块**。负责将 C++ 类方法、模板、虚函数与异常翻译为平坦的 `extern "C"` 垫片函数；导出 `ll_memory_operator_overrided` 与 `LL_REGISTER_MOD`。严禁包含复杂业务状态。 |
-| **`ferrum-host`** | Rust `staticlib`（静态链接进 `ferrum-loader.dll`） | `ferrum-abi`、`libloading`、`parking_lot` 等纯 Rust 库 | 管理二级 `.dll` 加载、ABI 版本协商、全局 VTable 实例构造、代数槽位句柄池（Generational Arena）、模组资源所有权表（`ModOwnership`）与异步任务队列。严禁直接绑定 C++ 符号。 |
+| **`ferrum-host`** | Rust `staticlib`（静态链接进 `ferrum-loader.dll`） | `ferrum-abi`、`libloading` 等纯 Rust 库 | 管理二级 `.dll` 加载（影子复制 + `libloading`）、ABI 版本协商、全局 VTable 实例构造、代数槽位句柄池（Generational Arena）、模组资源所有权表（`ModOwnership`，M2）与任务调度队列（M3）。严禁直接绑定 C++ 符号。 |
 | **`ferrum-abi`** | Rust `rlib`（`#![no_std]` 兼容设计） | **零外部依赖** | 仅定义 `#[repr(C)]` 结构体、固定底层类型枚举、函数指针类型与常量。宿主与 SDK 共同依赖此 Crate。 |
 | **`ferrum-sdk`** | Rust `rlib` | `ferrum-abi`、`ferrum-macros` | 面向模组开发者的安全高级 API。将底层句柄与 VTable 调用封装为符合 Rust 人体工学的类型、Trait 与 Future。 |
 | **`ferrum-macros`** | Rust `proc-macro` | `syn`、`quote` | 生成 `ferrum_mod_entry_v1` C 导出符号、自动注入 ABI 握手校验与 `catch_unwind` 包装代码。 |
 | **`ferrum-host-mock`** | Rust `rlib`（仅 `dev-dependencies`） | `ferrum-abi` | 纯 Rust 实现的假宿主 VTable，让下游模组与 `ferrum-sdk` 在不启动 BDS 的情况下 `cargo test`。 |
-| **`xtask`** | Rust 二进制（不发布） | `cbindgen` 等 | 生成 `cpp-shim/include/ferrum/ferrum_abi.h` 与 `layout_lock.rs` 追加断言，CI 校验生成物未过期。 |
+| **`xtask`** | Rust 二进制（不发布） | `cbindgen`、`ferrum-abi` | 生成 `cpp-shim/include/ferrum/ferrum_abi.h` 与 `layout_lock.rs` 追加断言，CI 校验生成物未过期。 |
 
 ### 依赖方向（单向，禁止反向）
 
@@ -103,7 +103,7 @@ BDS 进程阶段                 LeviLamina 动作                        Ferrum
                                 ├─ 加载 ferrum-loader (native)  --> 初始化 ferrum-host 全局运行时与 VTable
                                 │                                   注册 FerrumModManager("ferrum")
                                 └─ 按拓扑序加载 ferrum 模组     --> FerrumModManager::load(manifest):
-                                                                    1. 复制 .dll 到影子目录后 LoadLibraryExW
+                                                                    1. ferrum-host 复制 .dll 到 .ferrum-shadow/ 后加载
                                                                     2. 查找 ferrum_mod_entry_v1，双向握手校验 ABI
                                                                     3. 创建 ModContext，调用模组 on_load(&ctx)
                                                                     (注: 此时 Level/CommandRegistry 尚未就绪)

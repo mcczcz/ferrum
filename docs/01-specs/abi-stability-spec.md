@@ -55,23 +55,16 @@ pub struct FerrumHostApi {
     pub magic: u64,
     pub host_abi_version: AbiVersion,
 
-    // 核心基础子表（ABI v1.0 起永久存在，指针恒非空）
-    pub core_v1: *const CoreApiV1,           // last-error、panic 上报、服务注册表、模组元数据与目录
+    // v1.0 核心基础子表（指针恒非空）
+    pub core_v1: *const CoreApiV1,           // last-error、panic 上报、模组元数据与目录、线程判定
     pub log_v1: *const LogApiV1,
-    pub scheduler_v1: *const SchedulerApiV1,
-    pub event_v1: *const EventApiV1,
-    pub command_v1: *const CommandApiV1,
-    pub world_v1: *const WorldApiV1,
-    pub actor_v1: *const ActorApiV1,
-    pub player_v1: *const PlayerApiV1,
-    pub form_v1: *const FormApiV1,
 
     /// 按接口标识与最小次版本动态查询扩展子表（见 §3 第 5 条）；未找到返回空指针
     pub query_interface: extern "C" fn(
         interface_id_utf8: FfiStr<'_>,
         min_minor: u16,
     ) -> *const core::ffi::c_void,
-    // 后续 minor 版本只允许在此处尾部追加新字段
+    // 后续 minor 版本可在末尾追加领域子表（或统一通过 query_interface 暴露）
 }
 
 #[repr(transparent)]
@@ -113,11 +106,12 @@ pub type ModEntryFnV1 = unsafe extern "C" fn(
 1. `ferrum-host` 加载模组 `.dll` 后查找符号 `ferrum_mod_entry_v1`；若不存在则拒绝加载并给出清晰诊断。
 2. 模组入口（由 `#[ferrum_sdk::mod_entry]` 自动生成，整体包裹 `catch_unwind`）验证宿主：
    - `!host_api.is_null()` 且 `(*host_api).magic == FERRUM_ABI_MAGIC`；
-   - `(*host_api).struct_size >= size_of::<FerrumHostApiMinV1_0>() as u32`；
-   - `host.major == FERRUM_ABI_MAJOR`。
+   - `(*host_api).struct_size >= FERRUM_HOST_API_MIN_SIZE_V1_0`；
+   - `host.major == FERRUM_ABI_MAJOR`；
+   - `core_v1` / `log_v1` 非空且各自 `struct_size` 满足 `CORE_API_MIN_SIZE_V1_0` / `LOG_API_MIN_SIZE_V1_0`。
    校验失败返回 `FerrumStatus::ABI_INCOMPATIBLE`。
 3. 宿主验证模组回填的描述符：
-   - `descriptor.struct_size >= size_of::<FerrumModDescriptorMinV1_0>() as u32`；
+   - `descriptor.struct_size >= FERRUM_MOD_DESCRIPTOR_MIN_SIZE_V1_0`；
    - `required.major == host.major`，否则拒绝加载（不兼容代际）；
    - `required.minor <= host.minor`，否则拒绝加载并提示“该模组需要 ferrum-loader ABI ≥ 1.x，请升级 ferrum-loader”。
 4. 校验通过后，SDK 将 `host_api` 存入模组内部的 `OnceLock<&'static FerrumHostApi>`。
@@ -175,6 +169,6 @@ const _: () = {
 
 `cpp-shim` 需要与 Rust 共享 `FerrumStatus`、`FfiStr`、`FfiByteWriter`、`FfiCallback`、各类 ID 与 `ferrum-host`↔`cpp-shim` 内部函数签名。**严禁在 C++ 侧手写镜像结构体**：
 
-- 由 `cbindgen` 从 `crates/ferrum-abi`（及 `ferrum-host` 的 shim 接口模块）生成 `cpp-shim/include/ferrum/ferrum_abi.h`；
-- 生成的头文件纳入版本控制，CI 重新生成并 `git diff --exit-code` 校验未被手改、未过期；
+- 由 `cargo xtask cbindgen` 从 `crates/ferrum-abi` 与 `crates/ferrum-host/src/shim.rs` 生成 `cpp-shim/include/ferrum/ferrum_abi.h`；
+- 生成的头文件纳入版本控制，通过 `cargo xtask cbindgen --check`（以及 `cargo xtask layout-lock --check`）校验未被手改、未过期；
 - `cpp-shim` 中可额外使用 `static_assert(sizeof(...) == N)` 交叉校验关键结构体大小，数值与 `layout_lock.rs` 保持一致。

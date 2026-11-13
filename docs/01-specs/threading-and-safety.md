@@ -19,7 +19,7 @@ pub struct MainThreadToken<'tick> {
 1. **主线程专属 API（要求 `MainThreadToken<'_>`）**：
    - 所有涉及 `Level`、`Dimension`、`BlockSource`、`Actor`、`Player` 属性修改、物品栏变更、生成实体、方块读写、执行命令的 SDK 函数，**必须在函数签名中接收 `token: &MainThreadToken<'_>`**（或只能由令牌派生的瞬态引用如 `PlayerRef<'_>`）。
    - 因为 `MainThreadToken` 是 `!Send + !Sync` 且外部无法自行构造（私有字段），后台线程在**编译期**就无法直接调用任何非线程安全的游戏接口。
-   - **防御性运行时兜底**：`MainThreadToken::try_acquire_current()` 逃生舱口由宿主比对记录的主线程 ID 做 `O(1)` 校验，非主线程调用严格返回 `None`。`ferrum-host` 的 VTable 实现在 Debug 构建中对所有主线程专属函数做同样断言，失败返回 `FerrumStatus::WRONG_THREAD`。
+   - **防御性运行时兜底**：`ferrum_sdk::is_main_thread()` 由宿主比对记录的主线程 ID 做 `O(1)` 校验（规划中的 `MainThreadToken::try_acquire_current()` 逃生舱口同理，非主线程严格返回 `None`）。`ferrum-host` 对所有主线程专属入口（如 `enable` / `disable` 及后续领域 API）做同样断言，失败返回 `FerrumStatus::WRONG_THREAD`。
 
 2. **任意线程安全 API（`Send + Sync`，无需 Token）**：
    - 日志输出（`Logger::info/warn/error`——底层 `ll::io::Logger` 线程安全）。

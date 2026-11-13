@@ -70,6 +70,7 @@ impl FerrumStatus {
     pub const BUFFER_TOO_SMALL: Self    = Self(4);
     pub const OUT_OF_MEMORY: Self       = Self(5);
     pub const UNSUPPORTED: Self         = Self(6);   // 宿主不支持该函数/字段，或游戏特性已移除
+    pub const FAILED: Self              = Self(7);   // 一般性失败（如模组生命周期钩子返回的自定义错误），详情见 last-error
 
     // ABI 与生命周期状态错误 (100..=199)
     pub const ABI_INCOMPATIBLE: Self    = Self(100);
@@ -112,7 +113,7 @@ impl FerrumStatus {
 
 若某个存在缺陷的下游模组在高频钩子（例如 Tick 事件或高频移动事件）中反复 panic：
 - 回调毒化（§1.3）已能阻止**同一个**回调反复 panic；熔断针对的是模组整体大量回调持续出错的情形。
-- **熔断机制**：`ferrum-host` 为每个模组维护滑动窗口 panic 计数器（默认：10 秒内累计超过 `N = 16` 次 `MOD_PANICKED`；阈值可在 `ferrum-loader` 配置中调整）：
+- **熔断机制**：`ferrum-host` 为每个模组维护滑动窗口 panic 计数器（`crates/ferrum-host/src/breaker.rs`，默认：10 秒内累计超过 `N = 16` 次 `MOD_PANICKED`；后续可在 `ferrum-loader` 配置中开放调整）：
   1. 触发阈值时，宿主输出一条 `FATAL` 级别日志，明确指出故障模组名称；
   2. 自动对该模组执行停用协议（见《线程模型、并发与热卸载安全规范》§4.3），恢复服务器正常 TPS。
 - 熔断与毒化都使用限频日志，同一模组同一原因每 10 秒最多输出一次详细堆栈。

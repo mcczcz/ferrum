@@ -13,10 +13,7 @@
    ```
    > **注意**：编写下游 Ferrum 模组**不需要**安装 C++ 编译器（clang-cl/xmake）或下载几百 MB 的 BDS 符号/头文件库，纯 Cargo 即可秒级增量编译！
 2. **测试服务端环境**：已安装 LeviLamina 的 BDS 目录，并在 `mods/ferrum-loader/` 中部署了 `ferrum-loader` 插件。
-3. **脚手架工具（可选推荐）**：安装 `cargo-ferrum` 以一键初始化目录与打包 `manifest.json`：
-   ```powershell
-   cargo install --path crates/cargo-ferrum
-   ```
+3. **脚手架工具（规划中）**：`crates/cargo-ferrum` 脚手架与打包 CLI 尚未实现，现阶段请参考 `examples/hello/` 手动创建 `Cargo.toml` 与 `manifest.json`。
 
 ---
 
@@ -70,19 +67,10 @@ impl FerrumMod for HelloFerrumMod {
     }
 
     /// 阶段 2：服务端世界与主线程就绪（携带 MainThreadToken）
-    /// 适合注册游戏命令、监听世界事件与启动周期任务
+    /// （注：事件/命令/玩家等领域 API 将在 M2 引入，M1 可先使用日志与目录 API）
     fn on_enable(&mut self, ctx: &ModContext, token: &MainThreadToken<'_>) -> Result<()> {
+        let _ = (ctx, token);
         self.logger.info("HelloFerrum 已启用！");
-
-        ctx.events().subscribe::<PlayerJoinEvent>(EventPriority::Normal, |event, _token| {
-            let player = event.player();
-            // PlayerRef 的方法每次都按 ID 重新解析，玩家已离开时返回 Err(NotFound)
-            if let Ok(name) = player.real_name() {
-                let _ = player.send_message(format!("欢迎来到服务器，{name}！"));
-            }
-        })?;
-
-        let _ = token;
         Ok(())
     }
 
@@ -108,19 +96,22 @@ impl FerrumMod for HelloFerrumMod {
 ```rust
 #[cfg(test)]
 mod tests {
-    use ferrum_host_mock::MockHost;
+    use ferrum_host_mock::{MockHost, MockModState};
 
     #[test]
-    fn greets_on_join() {
+    fn full_lifecycle() {
         let host = MockHost::new();
-        let m = host.load::<super::HelloFerrumMod>().unwrap();
+        let m = host.load_named::<super::HelloFerrumMod>("hello-ferrum", "0.1.0").unwrap();
         host.enable(&m).unwrap();
-        let steve = host.spawn_player("Steve");
-        host.fire_player_join(steve);
-        assert!(host.messages_to(steve).iter().any(|s| s.contains("Steve")));
+        host.disable(&m).unwrap();
+        host.unload(&m).unwrap();
+        assert_eq!(host.state(&m), Some(MockModState::Unloaded));
+        assert!(host.logs(&m).iter().any(|l| l.message.contains("已启用")));
     }
 }
 ```
+
+> 更多示例见 `examples/hello/src/lib.rs` 与 `examples/hello/tests/`（含错误回传与 panic 隔离测试）。
 
 ---
 
@@ -144,3 +135,11 @@ mods/
 ```
 
 启动 `bedrock_server_mod.exe` 后，可在控制台使用原生的 `ll list` 验证加载。开发期热重载：直接覆盖 `mods/hello-ferrum/hello_ferrum.dll`，再执行 `ll mod reload hello-ferrum`。宿主通过影子副本加载新镜像，原文件不会被锁定。
+
+---
+
+## 下一步阅读
+
+- 完整 API 与类型说明：[Rust SDK 开发手册（`ferrum-sdk` 参考）](./sdk-reference.md)
+- 单元测试、错误/panic 断言与 PDB 调试：[模组测试与调试指南](./testing-and-debugging.md)
+- 清单文件、依赖与打包：[清单文件与依赖管理](./manifest-and-deps.md)

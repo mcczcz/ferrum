@@ -55,7 +55,7 @@ impl FerrumMod for MyMod {
 }
 ```
 
-完整示例见 [`examples/hello`](examples/hello)，开发指南见 [`docs/02-mod-developer-guide`](docs/02-mod-developer-guide/quick-start.md)。
+完整示例见 [`examples/hello`](examples/hello)，开发指南见 [快速开始](docs/02-mod-developer-guide/quick-start.md)、[Rust SDK 开发手册](docs/02-mod-developer-guide/sdk-reference.md) 与 [测试与调试指南](docs/02-mod-developer-guide/testing-and-debugging.md)。
 
 ## 仓库结构
 
@@ -66,7 +66,9 @@ impl FerrumMod for MyMod {
 | `cpp-shim` | 对接 LeviLamina 的 C++ 垫片层，`FerrumModManager` |
 | `crates/ferrum-sdk` / `ferrum-macros` | 模组开发 SDK 与 `#[mod_entry]` |
 | `crates/ferrum-host-mock` | 无需 BDS 的假宿主，用于 `cargo test` |
+| `examples/hello` | 最小示例模组与错误/panic 集成测试 |
 | `xtask` | 生成 `ferrum_abi.h` 与 ABI 布局锁 |
+| `docs` | 架构规范、开发者指南与维护手册 |
 
 ## 构建
 

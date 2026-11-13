@@ -4,6 +4,10 @@
 
 任何针对 `ferrum-abi`、`ferrum-host`、`cpp-shim` 或 `ferrum-sdk` 的架构演进与新 API 引入，必须严格遵循 `01-specs/` 中的硬性契约。
 
+> **当前实现状态**：已完成 **M0（骨架与生成管线）** 与 **M1（加载器最小闭环，ABI `1.0.0`）**。
+> 已可用能力：`FerrumMod` 生命周期（`on_load` / `on_enable` / `on_disable` / `on_unload`）、`ModContext` 元数据与目录、`Logger`、双向版本握手、影子副本重载、panic 防火墙与熔断器、`ferrum-host-mock`。
+> 事件、命令、玩家、异步调度、表单与跨模组服务等能力按 [实施路线图](./00-overview/roadmap.md) 在 M2–M4 分阶段落地；对应指南中已标明实现状态。
+
 ---
 
 ## 文档目录与阅读路线
@@ -24,9 +28,11 @@
 
 ### 02. 模组开发者指南 (`02-mod-developer-guide/`)
 面向下游 Rust 模组作者：
-- [快速开始与项目配置](./02-mod-developer-guide/quick-start.md)：工具链配置、`cdylib` 编译选项、最小可运行模组与基于 `ferrum-host-mock` 的单元测试。
+- [快速开始与项目配置](./02-mod-developer-guide/quick-start.md)：工具链配置、`cdylib` 编译选项、最小可运行模组与目录部署布局。
+- [Rust SDK 开发手册（`ferrum-sdk` 参考）](./02-mod-developer-guide/sdk-reference.md)：`#[mod_entry]`、`FerrumMod` 生命周期、`ModContext`、`Logger`、`MainThreadToken`、`Error`/panic 隔离与线程约束完整参考。
+- [模组测试与调试指南](./02-mod-developer-guide/testing-and-debugging.md)：使用 `ferrum-host-mock` 编写纯 Rust 单元测试，以及 BDS 影子副本热重载与 PDB 断点联调。
 - [清单文件与依赖管理](./02-mod-developer-guide/manifest-and-deps.md)：`manifest.json`（`type: "ferrum"`）规范、依赖拓扑声明与 `lip` 打包结构。
-- [事件、命令、表单与异步调度指南](./02-mod-developer-guide/core-apis-guide.md)：核心 SDK 惯用法与主线程/后台任务协同模式。
+- [事件、命令、表单与异步调度指南（规划）](./02-mod-developer-guide/core-apis-guide.md)：M2–M4 核心领域子系统设计与目标用法。
 
 ### 03. 维护者作业手册 (`03-maintainer-playbook/`)
 面向 Ferrum 引擎维护者与贡献者：
