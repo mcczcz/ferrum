@@ -4,9 +4,9 @@
 #include "I18n/I18n.h"
 #include "ll/api/io/Logger.h"
 
-namespace my_mod {
+namespace ferrum {
 
 extern ll::io::Logger& logger;
 extern Config&         config;
 
-} // namespace my_mod
+} // namespace ferrum

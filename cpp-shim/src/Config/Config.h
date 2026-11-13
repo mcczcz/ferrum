@@ -4,7 +4,7 @@
 #include "ll/api/io/LogLevel.h"
 #include <string>
 
-namespace my_mod {
+namespace ferrum {
 
 struct Config {
     int              version                  = 1;
@@ -15,4 +15,4 @@ struct Config {
 template <>
 struct is_reflectable<Config> : std::true_type {};
 
-} // namespace my_mod
+} // namespace ferrum

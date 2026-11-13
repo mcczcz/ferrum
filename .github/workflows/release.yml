@@ -36,6 +36,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # ferrum-host 由 xmake before_build 调用 cargo 构建。
+      - uses: dtolnay/rust-toolchain@stable
+
       - uses: xmake-io/github-action-setup-xmake@v1
 
       - uses: actions/cache@v6

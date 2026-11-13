@@ -1,0 +1,74 @@
+//! ABI 布局锁：由 `cargo xtask layout-lock` 追加生成，既有行严禁修改或删除。
+//! 见 docs/01-specs/abi-stability-spec.md §4。
+
+#![allow(unused_imports)]
+
+use core::mem::{align_of, offset_of, size_of};
+use ferrum_abi::*;
+
+const _: () = assert!(size_of::<AbiVersion>() == 8);
+const _: () = assert!(align_of::<AbiVersion>() == 4);
+const _: () = assert!(offset_of!(AbiVersion, major) == 0);
+const _: () = assert!(offset_of!(AbiVersion, minor) == 2);
+const _: () = assert!(offset_of!(AbiVersion, patch) == 4);
+const _: () = assert!(size_of::<FerrumStatus>() == 4);
+const _: () = assert!(align_of::<FerrumStatus>() == 4);
+const _: () = assert!(size_of::<FfiBool>() == 1);
+const _: () = assert!(align_of::<FfiBool>() == 1);
+const _: () = assert!(size_of::<LogLevel>() == 4);
+const _: () = assert!(align_of::<LogLevel>() == 4);
+const _: () = assert!(size_of::<ModDirKind>() == 4);
+const _: () = assert!(align_of::<ModDirKind>() == 4);
+const _: () = assert!(size_of::<FerrumModFlags>() == 4);
+const _: () = assert!(align_of::<FerrumModFlags>() == 4);
+const _: () = assert!(size_of::<GenerationalHandle>() == 8);
+const _: () = assert!(align_of::<GenerationalHandle>() == 8);
+const _: () = assert!(size_of::<ModContextHandle>() == 8);
+const _: () = assert!(align_of::<ModContextHandle>() == 8);
+const _: () = assert!(size_of::<RawMainThreadToken>() == 1);
+const _: () = assert!(align_of::<RawMainThreadToken>() == 1);
+const _: () = assert!(size_of::<FfiByteWriter>() == 16);
+const _: () = assert!(align_of::<FfiByteWriter>() == 8);
+const _: () = assert!(offset_of!(FfiByteWriter, context) == 0);
+const _: () = assert!(offset_of!(FfiByteWriter, write_fn) == 8);
+const _: () = assert!(size_of::<CoreApiV1>() == 64);
+const _: () = assert!(align_of::<CoreApiV1>() == 8);
+const _: () = assert!(offset_of!(CoreApiV1, struct_size) == 0);
+const _: () = assert!(offset_of!(CoreApiV1, take_last_error) == 8);
+const _: () = assert!(offset_of!(CoreApiV1, set_last_error) == 16);
+const _: () = assert!(offset_of!(CoreApiV1, report_panic) == 24);
+const _: () = assert!(offset_of!(CoreApiV1, get_mod_name) == 32);
+const _: () = assert!(offset_of!(CoreApiV1, get_mod_version) == 40);
+const _: () = assert!(offset_of!(CoreApiV1, get_mod_dir) == 48);
+const _: () = assert!(offset_of!(CoreApiV1, is_main_thread) == 56);
+const _: () = assert!(size_of::<LogApiV1>() == 24);
+const _: () = assert!(align_of::<LogApiV1>() == 8);
+const _: () = assert!(offset_of!(LogApiV1, struct_size) == 0);
+const _: () = assert!(offset_of!(LogApiV1, log) == 8);
+const _: () = assert!(offset_of!(LogApiV1, should_log) == 16);
+const _: () = assert!(size_of::<FerrumHostApi>() == 48);
+const _: () = assert!(align_of::<FerrumHostApi>() == 8);
+const _: () = assert!(offset_of!(FerrumHostApi, struct_size) == 0);
+const _: () = assert!(offset_of!(FerrumHostApi, reserved_flags) == 4);
+const _: () = assert!(offset_of!(FerrumHostApi, magic) == 8);
+const _: () = assert!(offset_of!(FerrumHostApi, host_abi_version) == 16);
+const _: () = assert!(offset_of!(FerrumHostApi, core_v1) == 24);
+const _: () = assert!(offset_of!(FerrumHostApi, log_v1) == 32);
+const _: () = assert!(offset_of!(FerrumHostApi, query_interface) == 40);
+const _: () = assert!(size_of::<FerrumModDescriptor>() == 56);
+const _: () = assert!(align_of::<FerrumModDescriptor>() == 8);
+const _: () = assert!(offset_of!(FerrumModDescriptor, struct_size) == 0);
+const _: () = assert!(offset_of!(FerrumModDescriptor, flags) == 4);
+const _: () = assert!(offset_of!(FerrumModDescriptor, required_abi_version) == 8);
+const _: () = assert!(offset_of!(FerrumModDescriptor, sdk_version) == 16);
+const _: () = assert!(offset_of!(FerrumModDescriptor, on_load) == 24);
+const _: () = assert!(offset_of!(FerrumModDescriptor, on_enable) == 32);
+const _: () = assert!(offset_of!(FerrumModDescriptor, on_disable) == 40);
+const _: () = assert!(offset_of!(FerrumModDescriptor, on_unload) == 48);
+const _: () = assert!(size_of::<FfiStr<'static>>() == 16);
+const _: () = assert!(offset_of!(FfiStr<'static>, len) == 8);
+const _: () = assert!(size_of::<FfiSlice<'static, u8>>() == 16);
+const _: () = assert!(FERRUM_HOST_API_MIN_SIZE_V1_0 == 48);
+const _: () = assert!(CORE_API_MIN_SIZE_V1_0 == 64);
+const _: () = assert!(LOG_API_MIN_SIZE_V1_0 == 24);
+const _: () = assert!(FERRUM_MOD_DESCRIPTOR_MIN_SIZE_V1_0 == 56);

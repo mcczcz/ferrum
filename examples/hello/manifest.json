@@ -1,0 +1,13 @@
+{
+    "name": "hello-ferrum",
+    "entry": "hello_ferrum.dll",
+    "version": "0.1.0",
+    "type": "ferrum",
+    "description": "Minimal Rust mod powered by Ferrum",
+    "dependencies": [
+        {
+            "name": "ferrum-loader",
+            "version": "^0.1.0"
+        }
+    ]
+}

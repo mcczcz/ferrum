@@ -2,14 +2,24 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
     paths:
-      - 'src/**'
+      - 'cpp-shim/**'
+      - 'crates/**'
+      - 'examples/**'
+      - 'xtask/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'xmake.lua'
       - '.github/workflows/build.yml'
   push:
     branches:
       - main
     paths:
-      - 'src/**'
+      - 'cpp-shim/**'
+      - 'crates/**'
+      - 'examples/**'
+      - 'xtask/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'xmake.lua'
       - '.github/workflows/build.yml'
   workflow_dispatch:
@@ -17,8 +27,29 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
-  
+
 jobs:
+  rust:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # 先构建示例 DLL，ferrum-host 的端到端测试会真实加载它。
+      - run: cargo build -p hello-ferrum --locked
+      - run: cargo test --workspace --locked
+      - run: cargo xtask cbindgen --check
+      - run: cargo xtask layout-lock --check
+
   build:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: windows-latest
@@ -31,10 +62,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
       - uses: xmake-io/github-action-setup-xmake@v1
         # with:
         #   xmake-version: branch@master
-      
+
       - uses: actions/cache@v6
         with:
           path: |
@@ -55,21 +90,13 @@ jobs:
       - run: |
           xmake -v -y
 
+      - run: |
+          cargo build -p hello-ferrum --release --locked
+          New-Item -ItemType Directory -Force bin/hello-ferrum | Out-Null
+          Copy-Item target/release/hello_ferrum.dll, examples/hello/manifest.json bin/hello-ferrum/
+
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ github.event.repository.name }}-${{ github.sha }}-${{ matrix.target_type }}-windows-x64
           path: |
             bin/
-
-  # clang-format:
-  #   runs-on: windows-latest
-  #   steps:
-  #     - uses: actions/checkout@v7
-
-  #     - run: |
-  #         choco install llvm -y --version=17.0.6
-
-  #     - name: clang-format
-  #       run: |
-  #         Get-ChildItem src/ -Filter *.cpp -Recurse | ForEach-Object { clang-format --dry-run -Werror $_.FullName; if ($LASTEXITCODE -ne 0) { exit 1; } }
-  #         Get-ChildItem src/ -Filter *.h -Recurse | ForEach-Object { clang-format --dry-run -Werror $_.FullName; if ($LASTEXITCODE -ne 0) { exit 1; } }

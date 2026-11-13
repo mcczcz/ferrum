@@ -1,0 +1,21 @@
+[package]
+name = "hello-ferrum"
+description = "最小 Ferrum 示例模组"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "hello_ferrum"
+# cdylib 供 BDS 加载；rlib 供 cargo test 链接。
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+ferrum-sdk.workspace = true
+
+[dev-dependencies]
+ferrum-host-mock.workspace = true

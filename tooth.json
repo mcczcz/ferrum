@@ -1,13 +1,13 @@
 {
   "format_version": 3,
   "format_uuid": "289f771f-2c9a-4d73-9f3f-8492495a924d",
-  "tooth": "github.com/LiteLDev/levilamina-mod-template",
+  "tooth": "github.com/Yangyangzhong82/ferrum",
   "version": "0.0.0",
   "info": {
-    "name": "My Mod",
-    "description": "Description of my mod",
+    "name": "Ferrum Loader",
+    "description": "Rust mod loader for LeviLamina",
     "tags": ["platform:levilamina", "type:mod"],
-    "avatar_url": "https://example.com/my-mod/avatar.png"
+    "avatar_url": ""
   },
   "variants": [
     {
@@ -20,13 +20,13 @@
         {
           "type": "zip",
           "urls": [
-            "https://{{tooth}}/releases/download/v{{version}}/levilamina-mod-template-server-windows-x64.zip"
+            "https://{{tooth}}/releases/download/v{{version}}/ferrum-server-windows-x64.zip"
           ],
           "placements": [
             {
               "type": "dir",
-              "src": "my-mod/",
-              "dest": "mods/my-mod/"
+              "src": "ferrum-loader/",
+              "dest": "mods/ferrum-loader/"
             }
           ]
         }
@@ -54,13 +54,13 @@
         {
           "type": "zip",
           "urls": [
-            "https://{{tooth}}/releases/download/v{{version}}/levilamina-mod-template-client-windows-x64.zip"
+            "https://{{tooth}}/releases/download/v{{version}}/ferrum-client-windows-x64.zip"
           ],
           "placements": [
             {
               "type": "dir",
-              "src": "my-mod/",
-              "dest": "mods/my-mod/"
+              "src": "ferrum-loader/",
+              "dest": "mods/ferrum-loader/"
             }
           ]
         }

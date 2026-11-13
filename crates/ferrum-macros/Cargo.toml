@@ -1,0 +1,19 @@
+[package]
+name = "ferrum-macros"
+description = "Ferrum SDK 过程宏（#[mod_entry]）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[lints]
+workspace = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }

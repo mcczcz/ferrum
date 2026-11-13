@@ -94,7 +94,7 @@ impl FerrumMod for HelloFerrumMod {
     }
 
     /// 阶段 4：卸载前终结（若自建了后台线程或 tokio Runtime，必须在此处等待退出）
-    fn on_unload(self) -> Result<()> {
+    fn on_unload(self, _ctx: &ModContext) -> Result<()> {
         self.logger.info("HelloFerrum 已卸载。");
         Ok(())
     }

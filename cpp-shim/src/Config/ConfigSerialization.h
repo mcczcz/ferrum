@@ -38,7 +38,7 @@ struct adl_serializer<ll::io::LogLevel> {
 };
 
 template <typename T>
-    requires(my_mod::is_reflectable<T>::value && std::is_aggregate_v<T>)
+    requires(ferrum::is_reflectable<T>::value && std::is_aggregate_v<T>)
 struct adl_serializer<T> {
     /**
      * @brief 将聚合类型 T 序列化为 JSON 对象。

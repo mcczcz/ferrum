@@ -16,7 +16,7 @@
 #include <utility>
 #include <vector>
 
-namespace my_mod {
+namespace ferrum {
 
 namespace {
 
@@ -300,4 +300,4 @@ Config& ConfigManager::get() { return *mConfig; }
 
 const Config& ConfigManager::get() const { return *mConfig; }
 
-} // namespace my_mod
+} // namespace ferrum

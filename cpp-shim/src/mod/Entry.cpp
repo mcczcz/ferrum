@@ -2,10 +2,16 @@
 
 #include "Config/ConfigManager.h"
 #include "I18n/I18n.h"
-#include "ll/api/mod/RegisterHelper.h"
-#include <filesystem>
+#include "ferrum/FerrumModManager.h"
+#include "ferrum/ferrum_abi.h"
 
-namespace my_mod {
+#include "ll/api/mod/ModManagerRegistry.h"
+#include "ll/api/mod/RegisterHelper.h"
+
+#include <filesystem>
+#include <memory>
+
+namespace ferrum {
 ll::io::Logger& logger = Entry::getInstance().getSelf().getLogger();
 Config&         config = ConfigManager::getInstance().get();
 
@@ -40,27 +46,37 @@ bool Entry::load() {
     }
     I18n::getInstance().setLanguage(config.language);
 
-    logger.info(tr("mod.loaded"));
+    if (auto res = initHost(); !res) {
+        logger.error(tr("loader.host_init_failed"));
+        res.error().log(logger);
+        return false;
+    }
+
+    // 必须在 load 阶段注册：依赖本模组的 type = "ferrum" 模组紧随其后加载。
+    mManager = std::make_shared<FerrumModManager>();
+    if (!ll::mod::ModManagerRegistry::getInstance().addManager(mManager)) {
+        logger.error(tr("loader.manager_register_failed"));
+        return false;
+    }
+
+    auto abi = ferrum_host_abi_version();
+    logger.info(tr("loader.loaded", abi.major, abi.minor, abi.patch));
     return true;
 }
 
 bool Entry::enable() {
     getSelf().getLogger().debug("Enabling...");
-
+    // enable 在服务端线程执行，此处记录主线程以供 MainThreadToken 校验。
+    ferrum_host_mark_main_thread();
     logger.info(tr("mod.enabled"));
     return true;
 }
 
 bool Entry::disable() {
     getSelf().getLogger().debug("Disabling...");
-    logger.info(tr("mod.unloaded"));
+    logger.info(tr("mod.disabled"));
     return true;
 }
 
-bool Entry::unload() {
-    getSelf().getLogger().debug("Unloading...");
-    return true;
-}
-
-LL_REGISTER_MOD(my_mod::Entry, my_mod::Entry::getInstance());
-} // namespace my_mod
+LL_REGISTER_MOD(ferrum::Entry, ferrum::Entry::getInstance());
+} // namespace ferrum

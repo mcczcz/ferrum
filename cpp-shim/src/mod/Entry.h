@@ -2,8 +2,13 @@
 
 #include "ll/api/mod/NativeMod.h"
 
-namespace my_mod {
+#include <memory>
 
+namespace ferrum {
+
+class FerrumModManager;
+
+// ferrum-loader 自身（type = "native"）的入口。
 class Entry {
 
 public:
@@ -19,10 +24,11 @@ public:
 
     bool disable();
 
-    bool unload();
+    // 不提供 unload：下游 Rust 模组的镜像与回调依赖本 DLL 常驻，ferrum-loader 不支持被卸载。
 
 private:
-    ll::mod::NativeMod& mSelf;
+    ll::mod::NativeMod&               mSelf;
+    std::shared_ptr<FerrumModManager> mManager;
 };
 
-} // namespace my_mod
+} // namespace ferrum

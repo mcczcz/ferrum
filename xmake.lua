@@ -24,7 +24,8 @@ option("target_type")
     set_values("server", "client")
 option_end()
 
-target("my-mod") 
+-- ferrum-loader.dll = cpp-shim (C++) + ferrum-host (Rust staticlib)
+target("ferrum-loader")
     add_rules("@levibuildscript/linkrule")
     add_rules("@levibuildscript/modpacker")
     if is_plat("windows") then
@@ -51,18 +52,32 @@ target("my-mod")
     set_kind("shared")
     set_languages("c++20")
     set_symbols("debug")
-    add_headerfiles("src/**.h")
-    add_files("src/**.cpp")
-    add_includedirs("src")
+    add_headerfiles("cpp-shim/src/**.h", "cpp-shim/include/**.h")
+    add_files("cpp-shim/src/**.cpp")
+    add_includedirs("cpp-shim/src", "cpp-shim/include")
     if is_config("target_type", "server") then
         add_defines("LL_PLAT_S")
-    --  add_includedirs("src-server")
-    --  add_files("src-server/**.cpp")
     else
         add_defines("LL_PLAT_C")
-    --  add_includedirs("src-client")
-    --  add_files("src-client/**.cpp")
     end
+
+    -- ferrum-host 静态库及其系统依赖（来自 `cargo rustc -- --print native-static-libs`）。
+    -- 严禁开启 +crt-static：与 cpp-shim 统一使用 /MD 动态 CRT。
+    local cargo_profile = is_mode("debug") and "debug" or "release"
+    add_linkdirs(path.join("target", cargo_profile))
+    add_links("ferrum_host")
+    add_syslinks("kernel32", "ntdll", "userenv", "ws2_32", "dbghelp", "synchronization", "advapi32", "bcrypt")
+
+    before_build(function (target)
+        local args = {"build", "-p", "ferrum-host", "--locked"}
+        if not is_mode("debug") then
+            table.insert(args, "--release")
+        end
+        os.vrunv("cargo", args)
+        -- 生成头文件必须与 Rust 定义一致。
+        os.vrunv("cargo", {"xtask", "cbindgen", "--check"})
+    end)
+
     after_build(function (target)
         local output_dir = path.join(os.projectdir(), "bin", target:name())
         os.mkdir(output_dir)

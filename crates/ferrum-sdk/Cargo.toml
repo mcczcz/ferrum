@@ -1,0 +1,15 @@
+[package]
+name = "ferrum-sdk"
+description = "Ferrum 模组开发 SDK：用安全 Rust 编写 LeviLamina 模组"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ferrum-abi.workspace = true
+ferrum-macros.workspace = true

@@ -1,0 +1,42 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/ferrum-abi",
+    "crates/ferrum-host",
+    "crates/ferrum-sdk",
+    "crates/ferrum-macros",
+    "crates/ferrum-host-mock",
+    "examples/hello",
+    "xtask",
+]
+default-members = [
+    "crates/ferrum-abi",
+    "crates/ferrum-host",
+    "crates/ferrum-sdk",
+    "crates/ferrum-macros",
+    "crates/ferrum-host-mock",
+    "examples/hello",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "CC0-1.0"
+repository = "https://github.com/Yangyangzhong82/ferrum"
+
+[workspace.dependencies]
+ferrum-abi = { path = "crates/ferrum-abi", version = "0.1.0" }
+ferrum-sdk = { path = "crates/ferrum-sdk", version = "0.1.0" }
+ferrum-macros = { path = "crates/ferrum-macros", version = "0.1.0" }
+ferrum-host-mock = { path = "crates/ferrum-host-mock", version = "0.1.0" }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[profile.release]
+debug = "line-tables-only"
+panic = "unwind"

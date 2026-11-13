@@ -1,6 +1,6 @@
 ---
 name: levilamina-mod
-description: 基于本模板开发 LeviLamina (Minecraft Bedrock) 原生 C++ 模组。涉及 src/、lang/、config.jsonc、xmake.lua、manifest.json、tooth.json 或 LeviLamina / MC API 时使用；也用于处理 MC 符号链接错误（LNK2019/LNK2001）、MCNAPI、UntypedStorage 成员、空类/空 enum，以及向 mcapi-requests 申请 API。
+description: 基于本模板开发 LeviLamina (Minecraft Bedrock) 原生 C++ 模组。涉及 cpp-shim/、lang/、config.jsonc、xmake.lua、manifest.json、tooth.json 或 LeviLamina / MC API 时使用；也用于处理 MC 符号链接错误（LNK2019/LNK2001）、MCNAPI、UntypedStorage 成员、空类/空 enum，以及向 mcapi-requests 申请 API。
 ---
 
 # LeviLamina 模组开发（本模板）
@@ -41,14 +41,14 @@ LL 和 MC 的 API 变动频繁，记忆中的签名大概率过时。**任何 `l
 
 ## 模板约定
 
-- 入口 `src/mod/Entry.cpp`：`load` 读语言和配置；`enable` 注册命令/事件/Hook；`disable` 反注册；`unload` 清理。
-- 全局 `logger`、`config`、`tr()` 通过 `src/mod/Global.h` 引入；代码放在 `namespace my_mod`。
-- 新增 `.cpp` 放 `src/` 下即可，`xmake.lua` 已通配。平台专属代码用 `LL_PLAT_S` / `LL_PLAT_C` 区分。
+- 入口 `cpp-shim/src/mod/Entry.cpp`：`load` 读语言和配置；`enable` 注册命令/事件/Hook；`disable` 反注册；`unload` 清理。
+- 全局 `logger`、`config`、`tr()` 通过 `cpp-shim/src/mod/Global.h` 引入；代码放在 `namespace ferrum`。
+- 新增 `.cpp` 放 `cpp-shim/src/` 下即可，`xmake.lua` 已通配。平台专属代码用 `LL_PLAT_S` / `LL_PLAT_C` 区分。
 - 风格遵循 `.clang-format`、`.clang-tidy`：成员 `mXxx`，类型 PascalCase，函数 camelCase；注释用中文。
 
 ### 配置
 
-- 改 `src/Config/Config.h` 的同时改 `config.jsonc`（同名键 + 中文注释），字段名即 JSON 键名。
+- 改 `cpp-shim/src/Config/Config.h` 的同时改 `config.jsonc`（同名键 + 中文注释），字段名即 JSON 键名。
 - 结构体必须是聚合类型（无构造函数/基类/私有成员）；嵌套结构体要特化 `is_reflectable<T>`。
 - 枚举自动按名字序列化；其他自定义类型需在 `ConfigSerialization.h` 写 `adl_serializer`。
 - 不兼容改动递增 `version`。

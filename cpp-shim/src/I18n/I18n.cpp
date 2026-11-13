@@ -6,7 +6,7 @@
 #include <nlohmann/json.hpp>
 #include <vector>
 
-namespace my_mod {
+namespace ferrum {
 
 I18n& I18n::getInstance() {
     static I18n instance;
@@ -86,4 +86,4 @@ std::string_view I18n::get(std::string_view key) const {
     return key;
 }
 
-} // namespace my_mod
+} // namespace ferrum

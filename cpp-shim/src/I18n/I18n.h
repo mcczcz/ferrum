@@ -9,7 +9,7 @@
 #include <utility>
 
 
-namespace my_mod {
+namespace ferrum {
 
 class I18n {
 public:
@@ -62,4 +62,4 @@ inline std::string tr(std::string_view key, Args&&... args) {
     return I18n::getInstance().get(key, std::forward<Args>(args)...);
 }
 
-} // namespace my_mod
+} // namespace ferrum
