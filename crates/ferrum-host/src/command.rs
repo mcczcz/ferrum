@@ -7,10 +7,11 @@ use crate::{
 use ferrum_abi::*;
 use std::sync::{Arc, Mutex};
 
-/// 当前阶段的资源归属账本：命令及执行中的回调。
+/// 资源归属账本：命令、监听器及执行中的回调。
 #[derive(Default)]
 pub struct ModOwnership {
     pub commands: Vec<CommandHandle>,
+    pub listeners: Vec<ListenerHandle>,
     pub active_invocations: usize,
     pub pending_disable: bool,
 }

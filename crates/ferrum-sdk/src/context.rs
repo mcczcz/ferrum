@@ -59,6 +59,11 @@ impl ModContext {
         crate::command::Commands { ctx: self.handle }
     }
 
+    /// 主线程事件订阅入口；监听器在模组停用时自动注销。
+    pub fn events(&self) -> crate::events::Events {
+        crate::events::Events { ctx: self.handle }
+    }
+
     /// `manifest.json` 中的 `name`。
     pub fn name(&self) -> Result<String> {
         host::read_string(|w| (host::core().get_mod_name)(self.handle, w))

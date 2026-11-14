@@ -215,6 +215,9 @@ extern "C" fn query_interface(id: FfiStr<'_>, min_minor: u16) -> *const c_void {
         "ferrum.command.v1" if min_minor == 0 => {
             (&domain::COMMAND as *const ferrum_abi::CommandApiV1).cast()
         }
+        "ferrum.event.v1" if min_minor == 0 => {
+            (&domain::EVENT as *const ferrum_abi::EventApiV1).cast()
+        }
         _ => std::ptr::null(),
     }
 }
@@ -406,7 +409,7 @@ impl MockHost {
         if domain::active(m.ctx) {
             return Err(Error::new(
                 FerrumStatus::REENTRANT_CALL,
-                "不能在命令回调内同步卸载自身",
+                "不能在回调内同步卸载自身",
             ));
         }
         if self.state(m) == Some(MockModState::Enabled) {

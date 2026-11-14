@@ -29,6 +29,7 @@ pub mod block;
 pub mod command;
 mod context;
 mod error;
+pub mod events;
 mod firewall;
 mod host;
 mod lifecycle;
@@ -49,6 +50,7 @@ pub use command::{
 };
 pub use context::{ModContext, ModDir};
 pub use error::{Error, ErrorKind, Result};
+pub use events::{EventCtx, EventPriority, Events, ListenerHandle};
 pub use ferrum_macros::mod_entry;
 pub use lifecycle::{FerrumMod, ModEntryPoint};
 pub use logger::{Level, Logger};
@@ -78,8 +80,9 @@ pub mod prelude {
     pub use crate::{
         ActorKind, ActorOps, ActorRef, ActorRuntimeId, ActorUniqueId, BlockPos, BlockRef,
         BlockRuntimeId, CommandInvocation, CommandParamKind, CommandPermission, DimensionId, Error,
-        ErrorKind, FerrumMod, GameMode, Level, Logger, MainThreadToken, MobOps, MobRef, ModContext,
-        ModDir, PlayerRef, PlayerUuid, Result, Vec3, world,
+        ErrorKind, EventPriority, FerrumMod, GameMode, Level, ListenerHandle, Logger,
+        MainThreadToken, MobOps, MobRef, ModContext, ModDir, PlayerRef, PlayerUuid, Result, Vec3,
+        world,
     };
 }
 

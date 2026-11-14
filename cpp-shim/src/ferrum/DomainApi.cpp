@@ -1,4 +1,5 @@
 #include "ferrum/DomainApi.h"
+#include "ferrum/EventApi.h"
 #include "I18n/I18n.h"
 #include "ferrum/FerrumModManager.h"
 #include "ll/api/command/CommandHandle.h"
@@ -608,6 +609,7 @@ static FerrumStatus commandOutput(uint64_t id, FfiBool error, FfiStr text) noexc
     });
 }
 void installDomainApi(FerrumShimApi& api) {
+    installEventApi(api);
     api.actor_v1 = {
         sizeof(ActorApiV1),
         actorFind,

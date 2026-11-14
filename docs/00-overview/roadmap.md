@@ -29,11 +29,11 @@
 
 已按 `ActorRef → MobRef → PlayerRef` 组合分层公共能力，增加逻辑实体 ID 查找、类型校验转换和独立 Actor/Mob 子表；已有玩家便捷方法内部复用公共实现。另增加已加载区块内的方块类型名/runtime ID/空气查询与默认类型设置/设为空气，提供独立 `BlockApiV1` 和 mock。开发版仍使用 ABI 1.1，各子表 minor 0。
 
-已完成 ABI 1.1 的命令 Builder（Int/Float/Bool/String/Player）、执行参数与输出、玩家名称/UUID 查找与在线列表、玩家名称/UUID/消息/OP 判断，并接通主线程检查、命令资源归属、停用排空、重入与 panic 防火墙以及 mock。事件 API 和真实 BDS 场景验收仍待完成，M2 尚未验收。
+已完成 ABI 1.1 的命令 Builder（Int/Float/Bool/String/Player）、执行参数与输出、玩家名称/UUID 查找与在线列表、玩家名称/UUID/消息/OP 判断，并接通主线程检查、资源归属、停用排空、重入与 panic 防火墙以及 mock。现已增加加入、断开和聊天事件及 mock 派发，聊天支持读取与取消。开发阶段保留 ABI 1.1；真实 BDS 场景验收仍待完成，M2 尚未验收。
 
 - 强类型回调结构体、`ModOwnership`、停用协议（关闸 → 通知 → 撤销 → 排空）、自我停用的延迟执行。
 - SDK：`FnMut` 重入守卫、panic 毒化、HRTB 令牌签名。
-- 事件：`PlayerJoinEvent`、`PlayerLeaveEvent`、`PlayerChatEvent`（可拦截）。
+- 事件：`PlayerJoinEvent`（可拦截）、`PlayerDisconnectEvent`、`PlayerChatEvent`（可拦截）。
 - 玩家：按 `ActorRuntimeId` 解析的 `PlayerRef`：`real_name`、`uuid`、`send_message`、`is_operator`；`world::get_player(token, uuid)`。
 - 命令：基于 `RuntimeOverload` 的 Builder（先支持 `Int`/`Float`/`Bool`/`String`/`Player`）。
 - `ferrum-host-mock` 覆盖以上全部 API。

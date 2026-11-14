@@ -2,7 +2,53 @@
 
 本文档面向使用 Rust 编写 `type = "ferrum"` 模组的开发者，介绍当前已实现的全部 `ferrum-sdk` / `ferrum-macros` 接口、惯用写法与安全约束。
 
-> 当前开发版对应 **ABI `1.1.0`**，已提供命令注册、Actor/Mob/Player 分层接口和基础方块读写。仅使用生命周期与日志的模组仍默认要求 ABI 1.0；事件、异步调度与表单仍在规划中。
+> 当前开发版对应 **ABI `1.1.0`**，已提供命令注册、玩家事件、Actor/Mob/Player 分层接口和基础方块读写。仅使用生命周期与日志的模组仍默认要求 ABI 1.0；异步调度与表单仍在规划中。
+
+## 玩家事件（开发版 ABI 1.1）
+
+事件通过 `ferrum.event.v1` 子表提供，SDK 入口为 `ctx.events()`。当前支持玩家加入初始化阶段 `PlayerJoinEvent`、断开连接前 `PlayerDisconnectEvent` 和聊天 `PlayerChatEvent`。
+
+在 `on_enable` 或已启用模组的主线程回调中注册：
+
+```rust
+use ferrum_sdk::events::{EventPriority, PlayerChatEvent, PlayerJoinEvent};
+
+ctx.events().subscribe::<PlayerJoinEvent>(
+    token,
+    EventPriority::Normal,
+    |event, _token| {
+        let player = event.player()?;
+        player.send_message(format!("欢迎，{}！", player.real_name()?))?;
+        Ok(())
+    },
+)?;
+
+let listener = ctx.events().subscribe::<PlayerChatEvent>(
+    token,
+    EventPriority::High,
+    |event, _token| {
+        if event.message()?.contains("禁止内容") {
+            event.cancel()?;
+            event.player()?.send_message("这条消息已被拦截")?;
+        }
+        Ok(())
+    },
+)?;
+
+// 若需提前移除：
+ctx.events().unsubscribe(token, listener)?;
+```
+
+- 所有事件提供 `player() -> Result<PlayerRef<'tick>>`；每次玩家操作仍按 ID 重新解析，目标消失返回 `NotFound`。聊天额外提供 `message() -> Result<String>`，消息副本归模组所有；暂不提供修改消息。
+- 加入、聊天事件提供 `cancel()` 和 `is_cancelled()`；断开事件没有这些方法。加入事件的取消仅取消对应 LL 初始化阶段处理，不代表拒绝登录或踢出玩家。
+- 优先级从 `Highest` 到 `Lowest`。每次订阅直接对应一个 LL 监听器，与原生模组共同排序；同优先级按 LL 监听器创建顺序执行。取消立即作用于 LL 原事件，并终止本次后续监听。
+- 回调返回 `Result<()>`；`Err` 记录日志且不隐式取消，已经发生的取消或游戏修改不会回滚。
+- `ListenerHandle` 丢弃时不注销；手动注销、启用失败、停用和卸载时清理。支持在回调内注销自身，闭包在活跃调用结束后析构。
+- 注册和注销需要主线程令牌。回调为 HRTB `FnMut + 'static`，不要求 `Send`，可以捕获 `Rc`，但不能借用 `on_enable` 的 `&mut self`；可以捕获独立的共享状态。事件上下文、玩家引用和令牌不能离开当次调用。
+- 同一 `FnMut` 重入被跳过并限频告警；普通 panic 被捕获，该监听器被摘除。自我停用沿用命令 API 的延迟排空协议。
+- `MockHost::emit_player_join(id)`、`emit_player_disconnect(id)`、`emit_player_chat(id, message)` 可同步派发事件，玩家需先加入 mock 在线列表；加入和聊天返回是否取消。这些方法不自动改变玩家在线状态或模拟广播。
+
+开发阶段保留 ABI 1.1；旧构建没有事件子表时，调用返回 `Unsupported`。
 
 ## 命令与玩家 API（ABI 1.1）
 

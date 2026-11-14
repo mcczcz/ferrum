@@ -229,6 +229,9 @@ extern "C" fn query_interface(id: FfiStr<'_>, min_minor: u16) -> *const std::ffi
         b"ferrum.command.v1" if min_minor == 0 => {
             (&crate::command::COMMAND_V1 as *const ferrum_abi::CommandApiV1).cast()
         }
+        b"ferrum.event.v1" if min_minor == 0 => {
+            (&crate::event::EVENT_V1 as *const ferrum_abi::EventApiV1).cast()
+        }
         _ => std::ptr::null(),
     }
 }

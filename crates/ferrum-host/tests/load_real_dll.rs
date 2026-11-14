@@ -3,7 +3,8 @@
 //! 需要先构建示例：`cargo build -p hello-ferrum`。DLL 不存在时测试跳过。
 
 use ferrum_abi::{
-    ActorApiV1, ActorKind, ActorUniqueId, BlockApiV1, BlockPos, BlockRuntimeId, MobApiV1,
+    ActorApiV1, ActorKind, ActorUniqueId, BlockApiV1, BlockPos, BlockRuntimeId,
+    EventSubscriptionV1, ListenerHandle, MobApiV1,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -68,6 +69,11 @@ unavailable!(command_float(u64, FfiStr<'_>, *mut f32));
 unavailable!(command_bool(u64, FfiStr<'_>, *mut FfiBool));
 unavailable!(command_string(u64, FfiStr<'_>, *mut FfiByteWriter));
 unavailable!(command_output(u64, FfiBool, FfiStr<'_>));
+unavailable!(event_subscribe(ShimModCookie, ListenerHandle, *const EventSubscriptionV1));
+unavailable!(event_unsubscribe(ShimModCookie, ListenerHandle));
+unavailable!(event_cancel(u64));
+unavailable!(event_cancelled(u64, *mut FfiBool));
+unavailable!(event_message(u64, *mut FfiByteWriter));
 unavailable!(actor_find(ActorUniqueId, *mut ActorRuntimeId));
 unavailable!(actor_unique(ActorRuntimeId, *mut ActorUniqueId));
 unavailable!(actor_kind(ActorRuntimeId, *mut ActorKind));
@@ -107,6 +113,12 @@ fn load_enable_disable_unload_reload() {
         command_string,
         command_players: command_string,
         command_output,
+        event_subscribe,
+        event_unsubscribe,
+        event_player: command_origin,
+        event_is_cancelled: event_cancelled,
+        event_cancel,
+        event_chat_message: event_message,
         actor_v1: ActorApiV1 {
             struct_size: size_of::<ActorApiV1>() as u32,
             find_by_unique_id: actor_find,

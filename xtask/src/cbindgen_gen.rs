@@ -36,6 +36,7 @@ pub fn run(check: bool) -> Result<bool, String> {
                 "MobApiV1".to_owned(),
                 "BlockApiV1".to_owned(),
                 "CommandApiV1".to_owned(),
+                "EventApiV1".to_owned(),
             ],
             rename: [
                 ("Vec3".to_owned(), "FerrumVec3".to_owned()),

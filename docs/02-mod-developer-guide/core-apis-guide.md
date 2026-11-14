@@ -1,13 +1,15 @@
 # 事件、命令、表单与异步调度指南（设计规划）
 
-> **实现状态提示**：ABI 1.1 已实现命令 Builder、五种基础参数和玩家查询/消息/OP API，实际签名与用法见 [SDK 参考](./sdk-reference.md#命令与玩家-apiabi-11) 及 `examples/hello/`。
-> 本文下方的事件、派生命令参数宏、表单、调度器示例仍属于目标设计，不代表当前可调用的接口。
+> **实现状态提示**：ABI 1.1 已实现命令 Builder、五种基础参数、玩家 API，以及加入、断开、聊天三个事件，实际签名见 [SDK 参考](./sdk-reference.md)。
+> 下方破坏方块事件、派生命令参数宏、表单、调度器示例仍属于目标设计，不代表当前可调用的接口。
 
 本文档概述 `ferrum-sdk` 四大高频子系统的底层桥接原理与目标用法。
 
 ---
 
 ## 1. 事件系统（Events）
+
+已实现的玩家事件用法及取消语义见 [玩家事件](./sdk-reference.md#玩家事件开发版-abi-11)。下方以尚未实现的方块破坏事件说明扩展方向；实际订阅和注销需要显式传入主线程令牌。
 
 ### 底层机制
 `cpp-shim` 为每个受支持的 LeviLamina 事件（如 `PlayerJoinEvent`、`PlayerChatEvent`、`PlayerDestroyBlockEvent`、`MobDieEvent` 等）实现统一的 `ll::event::ListenerBase` 适配器：
@@ -19,17 +21,19 @@
 ### SDK 用法示例
 ```rust
 let listener = ctx.events().subscribe::<PlayerDestroyBlockEvent>(
+    token,
     EventPriority::High,
     |event, token| {
-        let player = event.player();
+        let player = event.player()?;
         let pos = event.pos();
-        if pos.y > 200 && !player.is_operator(token).unwrap_or(false) {
+        if pos.y > 200 && !player.is_operator()? {
             let _ = player.send_message("高空保护区禁止破坏方块！");
-            event.cancel(); // 拦截破坏行为
+            event.cancel()?; // 拦截破坏行为
         }
+        Ok(())
     },
 )?;
-// listener 为 ListenerHandle，既可提前调用 ctx.events().unsubscribe(listener) 手动移除，
+// listener 为 ListenerHandle，既可提前调用 ctx.events().unsubscribe(token, listener) 手动移除，
 // 也可交由模组停用时由宿主自动清理。
 ```
 

@@ -235,6 +235,7 @@ pub fn enable(raw: u64) -> FerrumStatus {
             // on_enable 失败（含 panic）：模组进入 Disabled。
             entry.set_state(ModState::Disabled);
             crate::command::revoke(ctx);
+            crate::event::revoke(ctx);
             return lifecycle_failed(&entry, "on_enable", status);
         }
     }
@@ -244,7 +245,7 @@ pub fn enable(raw: u64) -> FerrumStatus {
 
 /// `FerrumModManager::disable` 的实现，必须在主线程调用。
 ///
-/// 自身命令回调内停用时，通知与排空推迟到最外层回调返回。
+/// 自身回调内停用时，通知与排空推迟到最外层回调返回。
 pub fn disable(raw: u64) -> FerrumStatus {
     let (ctx, entry) = match lookup(raw) {
         Ok(v) => v,
@@ -287,6 +288,7 @@ pub(crate) fn finish_disable(ctx: ModContextHandle, entry: &ModEntry) {
     };
     // 3–4. 撤销路由，排空回调；析构不在 ownership 锁内执行。
     crate::command::revoke(ctx);
+    crate::event::revoke(ctx);
     entry
         .ownership
         .lock()
@@ -304,14 +306,11 @@ pub fn unload(raw: u64) -> FerrumStatus {
         Ok(v) => v,
         Err(s) => return s,
     };
-    if !vtable::is_main_thread()
-        && !entry
-            .ownership
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .commands
-            .is_empty()
-    {
+    let has_resources = {
+        let own = entry.ownership.lock().unwrap_or_else(|e| e.into_inner());
+        !own.commands.is_empty() || !own.listeners.is_empty()
+    };
+    if !vtable::is_main_thread() && has_resources {
         return fail(FerrumStatus::WRONG_THREAD, "unload 必须在服务端主线程调用");
     }
     if entry
@@ -323,7 +322,7 @@ pub fn unload(raw: u64) -> FerrumStatus {
     {
         return fail(
             FerrumStatus::REENTRANT_CALL,
-            "不能在执行中的命令回调里同步卸载自身",
+            "不能在执行中的回调里同步卸载自身",
         );
     }
     if entry.state() == ModState::Enabled {
@@ -337,6 +336,7 @@ pub fn unload(raw: u64) -> FerrumStatus {
     };
 
     crate::command::revoke(ctx);
+    crate::event::revoke(ctx);
     entry.set_state(ModState::Unloading);
     let status = match descriptor.on_unload {
         Some(on_unload) => on_unload(ctx),

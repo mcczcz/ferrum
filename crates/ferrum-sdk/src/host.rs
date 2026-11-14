@@ -147,6 +147,16 @@ domain_api!(PlayerApi, player_api, PlayerApiV1, "ferrum.player.v1",
     set_game_mode: extern "C" fn(ActorRuntimeId, GameMode) -> FerrumStatus;
 });
 
+domain_api!(EventApi, event_api, EventApiV1, "ferrum.event.v1",
+    "宿主未提供事件 API", "事件 API 子表不完整", {
+    subscribe: extern "C" fn(ModContextHandle, *const ferrum_abi::EventSubscriptionV1, ferrum_abi::EventCallbackV1, *mut ferrum_abi::ListenerHandle) -> FerrumStatus;
+    unsubscribe: extern "C" fn(ModContextHandle, ferrum_abi::ListenerHandle) -> FerrumStatus;
+    player: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, *mut ActorRuntimeId) -> FerrumStatus;
+    is_cancelled: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, *mut FfiBool) -> FerrumStatus;
+    cancel: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle) -> FerrumStatus;
+    chat_message: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, *mut FfiByteWriter) -> FerrumStatus;
+});
+
 domain_api!(CommandApi, command_api, CommandApiV1, "ferrum.command.v1",
     "宿主未提供命令 API（需要 ABI 1.1）", "命令 API 子表不完整", {
     register: extern "C" fn(ModContextHandle, *const CommandDefinitionV1<'_>, CommandCallbackV1, *mut CommandHandle) -> FerrumStatus;

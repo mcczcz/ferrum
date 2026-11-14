@@ -105,6 +105,23 @@ fn assertions() -> Vec<String> {
         set_game_mode
     );
     lock!(out, CommandHandle);
+    lock!(out, ListenerHandle);
+    lock!(out, EventScopeHandle);
+    lock!(out, EventKind);
+    lock!(out, EventPriority);
+    lock!(out, EventSubscriptionV1, struct_size, kind, priority);
+    lock!(out, EventCallbackV1, env, invoke_fn, drop_fn);
+    lock!(
+        out,
+        EventApiV1,
+        struct_size,
+        subscribe,
+        unsubscribe,
+        player,
+        is_cancelled,
+        cancel,
+        chat_message
+    );
     lock!(out, CommandScopeHandle);
     lock!(out, CommandPermission);
     lock!(out, CommandParamKind);

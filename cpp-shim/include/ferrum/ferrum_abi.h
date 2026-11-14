@@ -298,6 +298,26 @@ typedef struct MobApiV1 {
   FerrumStatus (*set_health)(ActorRuntimeId, float);
 } MobApiV1;
 
+typedef GenerationalHandle ListenerHandle;
+
+typedef uint32_t EventKind;
+#define EventKind_PLAYER_JOIN 0
+#define EventKind_PLAYER_DISCONNECT 1
+#define EventKind_PLAYER_CHAT 2
+
+typedef uint32_t EventPriority;
+#define EventPriority_HIGHEST 0
+#define EventPriority_HIGH 100
+#define EventPriority_NORMAL 200
+#define EventPriority_LOW 300
+#define EventPriority_LOWEST 400
+
+typedef struct EventSubscriptionV1 {
+  uint32_t struct_size;
+  EventKind kind;
+  EventPriority priority;
+} EventSubscriptionV1;
+
 /**
  * `cpp-shim` 在 `ferrum_host_init` 时注入的函数表。全部函数必须 `noexcept`。
  */
@@ -336,6 +356,12 @@ typedef struct FerrumShimApi {
   struct BlockApiV1 block_v1;
   struct ActorApiV1 actor_v1;
   struct MobApiV1 mob_v1;
+  FerrumStatus (*event_subscribe)(ShimModCookie, ListenerHandle, const struct EventSubscriptionV1*);
+  FerrumStatus (*event_unsubscribe)(ShimModCookie, ListenerHandle);
+  FerrumStatus (*event_player)(uint64_t, ActorRuntimeId*);
+  FerrumStatus (*event_is_cancelled)(uint64_t, FfiBool*);
+  FerrumStatus (*event_cancel)(uint64_t);
+  FerrumStatus (*event_chat_message)(uint64_t, struct FfiByteWriter*);
 } FerrumShimApi;
 
 typedef struct AbiVersion {
@@ -548,6 +574,36 @@ typedef struct CommandApiV1 {
   FerrumStatus (*output)(ModContextHandle, CommandScopeHandle, FfiBool, struct FfiStr);
 } CommandApiV1;
 
+/**
+ * 仅在当前监听器的同步调用期间有效。
+ */
+typedef GenerationalHandle EventScopeHandle;
+
+/**
+ * 注册成功才接管 env；调用与析构都在主线程且不持有宿主锁。
+ */
+typedef struct EventCallbackV1 {
+  void *env;
+  FerrumStatus (*invoke_fn)(void*, EventScopeHandle, struct RawMainThreadToken);
+  void (*drop_fn)(void*);
+} EventCallbackV1;
+
+/**
+ * 主线程事件接口，通过 ferrum.event.v1 查询。取消会停止 LL 的后续监听。
+ */
+typedef struct EventApiV1 {
+  uint32_t struct_size;
+  FerrumStatus (*subscribe)(ModContextHandle,
+                            const struct EventSubscriptionV1*,
+                            struct EventCallbackV1,
+                            ListenerHandle*);
+  FerrumStatus (*unsubscribe)(ModContextHandle, ListenerHandle);
+  FerrumStatus (*player)(ModContextHandle, EventScopeHandle, ActorRuntimeId*);
+  FerrumStatus (*is_cancelled)(ModContextHandle, EventScopeHandle, FfiBool*);
+  FerrumStatus (*cancel)(ModContextHandle, EventScopeHandle);
+  FerrumStatus (*chat_message)(ModContextHandle, EventScopeHandle, struct FfiByteWriter*);
+} EventApiV1;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -556,6 +612,11 @@ extern "C" {
  * cpp-shim 只传入自身栈帧的数字标识，游戏指针留在 C++ 内。
  */
 FerrumStatus ferrum_host_dispatch_command(uint64_t raw, uint64_t shim_scope);
+
+/**
+ * shim 仅传递栈上事件的数字索引，C++ 对象指针不会进入 Rust。
+ */
+FerrumStatus ferrum_host_dispatch_event(uint64_t raw, uint64_t shim_scope);
 
 /**
  * 安装 shim 函数表。必须在其他任何 `ferrum_host_*` 调用之前、且只调用一次。

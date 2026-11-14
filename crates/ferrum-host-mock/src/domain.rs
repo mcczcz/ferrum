@@ -2,7 +2,7 @@
 use super::{MockHost, MockModState, check, is_main_thread, with_mod};
 use ferrum_abi::*;
 use ferrum_sdk::Error;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
@@ -106,6 +106,25 @@ struct Scope {
     params: Vec<(String, CommandParamKind, bool)>,
     output: MockCommandOutput,
 }
+struct Listener {
+    owner: ModContextHandle,
+    kind: EventKind,
+    priority: EventPriority,
+    callback: EventCallbackV1,
+    warned_reentrant: Cell<bool>,
+}
+impl Drop for Listener {
+    fn drop(&mut self) {
+        (self.callback.drop_fn)(self.callback.env);
+    }
+}
+struct EventScope {
+    owner: ModContextHandle,
+    kind: EventKind,
+    player: ActorRuntimeId,
+    message: Option<String>,
+    cancelled: bool,
+}
 #[derive(Default)]
 struct Domain {
     players: Vec<OnlinePlayer>,
@@ -115,6 +134,8 @@ struct Domain {
     loaded_chunks: Vec<(i32, i32, i32)>,
     commands: BTreeMap<u64, Rc<Command>>,
     scopes: BTreeMap<u64, Scope>,
+    listeners: BTreeMap<u64, Rc<Listener>>,
+    event_scopes: BTreeMap<u64, EventScope>,
     serial: u32,
     next_player: u64,
     custom_dimensions: Vec<DimensionId>,
@@ -122,6 +143,8 @@ struct Domain {
     pending: Vec<ModContextHandle>,
 }
 thread_local! { static DOMAIN: RefCell<Domain> = RefCell::new(Domain::default()); }
+
+include!("event_impl.rs");
 
 fn guard(f: impl FnOnce() -> FerrumStatus) -> FerrumStatus {
     if !is_main_thread().get() {
@@ -764,6 +787,19 @@ pub(super) fn revoke(ctx: ModContextHandle) {
             .collect::<Vec<_>>();
         keys.into_iter()
             .filter_map(|k| d.commands.remove(&k))
+            .collect::<Vec<_>>()
+    });
+    drop(removed);
+    let removed = DOMAIN.with(|d| {
+        let mut d = d.borrow_mut();
+        let keys: Vec<_> = d
+            .listeners
+            .iter()
+            .filter(|(_, l)| l.owner == ctx)
+            .map(|(k, _)| *k)
+            .collect();
+        keys.into_iter()
+            .filter_map(|k| d.listeners.remove(&k))
             .collect::<Vec<_>>()
     });
     drop(removed);
