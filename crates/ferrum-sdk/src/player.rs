@@ -15,23 +15,23 @@ impl<'tick> PlayerRef<'tick> {
         Self { mob }
     }
     pub fn real_name(&self) -> Result<String> {
-        let a = host::player_api()?;
-        host::read_string(|w| (a.real_name)(self.runtime_id(), w))
+        let real_name = host::player_api()?.real_name()?;
+        host::read_string(|w| real_name(self.runtime_id(), w))
     }
     pub fn uuid(&self) -> Result<PlayerUuid> {
         let mut out = PlayerUuid::default();
-        host::check((host::player_api()?.uuid)(self.runtime_id(), &mut out))?;
+        host::check((host::player_api()?.uuid()?)(self.runtime_id(), &mut out))?;
         Ok(out)
     }
     pub fn send_message(&self, text: impl AsRef<str>) -> Result<()> {
-        host::check((host::player_api()?.send_message)(
+        host::check((host::player_api()?.send_message()?)(
             self.runtime_id(),
             FfiStr::new(text.as_ref()),
         ))
     }
     pub fn is_operator(&self) -> Result<bool> {
         let mut out = FfiBool::FALSE;
-        host::check((host::player_api()?.is_operator)(
+        host::check((host::player_api()?.is_operator()?)(
             self.runtime_id(),
             &mut out,
         ))?;
@@ -39,11 +39,17 @@ impl<'tick> PlayerRef<'tick> {
     }
     pub fn game_mode(&self) -> Result<GameMode> {
         let mut out = GameMode::UNKNOWN;
-        host::check((host::player_api()?.game_mode)(self.runtime_id(), &mut out))?;
+        host::check((host::player_api()?.game_mode()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
         Ok(out)
     }
     pub fn set_game_mode(&self, mode: GameMode) -> Result<()> {
-        host::check((host::player_api()?.set_game_mode)(self.runtime_id(), mode))
+        host::check((host::player_api()?.set_game_mode()?)(
+            self.runtime_id(),
+            mode,
+        ))
     }
 }
 

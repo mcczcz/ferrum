@@ -4,7 +4,12 @@ use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::OnceLock;
 
-use ferrum_abi::{CoreApiV1, FerrumHostApi, FerrumStatus, FfiByteWriter, LogApiV1};
+use ferrum_abi::{
+    ActorKind, ActorRuntimeId, ActorUniqueId, BlockPos, BlockRuntimeId, CommandCallbackV1,
+    CommandDefinitionV1, CommandHandle, CommandScopeHandle, CoreApiV1, DimensionId, FerrumHostApi,
+    FerrumStatus, FfiBool, FfiByteWriter, FfiStr, GameMode, LogApiV1, ModContextHandle, PlayerUuid,
+    Vec3,
+};
 
 use crate::error::Error;
 
@@ -52,77 +57,134 @@ pub(crate) fn check(status: FerrumStatus) -> Result<(), Error> {
     }
 }
 
-pub(crate) fn player_api() -> Result<&'static ferrum_abi::PlayerApiV1, Error> {
-    let ptr =
-        (api().query_interface)("ferrum.player.v1".into(), 0).cast::<ferrum_abi::PlayerApiV1>();
-    if ptr.is_null() {
-        return Err(Error::new(
-            FerrumStatus::UNSUPPORTED,
-            "宿主未提供玩家 API（需要 ABI 1.1）",
-        ));
-    }
-    // SAFETY: query_interface 返回宿主静态子表，先只读取冻结的 struct_size 前缀。
-    if unsafe { ptr.cast::<u32>().read() } < size_of::<ferrum_abi::PlayerApiV1>() as u32 {
-        return Err(Error::new(FerrumStatus::UNSUPPORTED, "玩家 API 子表不完整"));
-    }
-    // SAFETY: 已确认子表非空且大小覆盖 v1 全部槽位，宿主保证静态且对齐。
-    Ok(unsafe { &*ptr })
+/// 宿主不可变子表的原始视图；只保证宿主声明的前缀存在，不构造完整表引用。
+struct ApiTable {
+    ptr: *const c_void,
+    struct_size: u32,
 }
 
-pub(crate) fn command_api() -> Result<&'static ferrum_abi::CommandApiV1, Error> {
-    let ptr =
-        (api().query_interface)("ferrum.command.v1".into(), 0).cast::<ferrum_abi::CommandApiV1>();
-    if ptr.is_null() {
-        return Err(Error::new(
-            FerrumStatus::UNSUPPORTED,
-            "宿主未提供命令 API（需要 ABI 1.1）",
-        ));
+// SAFETY: 指针只来自宿主的不可变静态子表，不拥有资源，可以跨线程保存；
+// 具体函数的调用线程仍由 SDK 的主线程令牌与瞬态引用约束。
+unsafe impl Send for ApiTable {}
+// SAFETY: 子表和缓存的大小在进程生命周期内不变，所有访问均为只读。
+unsafe impl Sync for ApiTable {}
+
+impl ApiTable {
+    fn query(
+        interface_id: &'static str,
+        missing: &'static str,
+        incomplete: &'static str,
+    ) -> Result<Self, &'static str> {
+        let ptr = (api().query_interface)(interface_id.into(), 0);
+        if ptr.is_null() {
+            return Err(missing);
+        }
+        // SAFETY: query_interface 返回对齐的静态子表，冻结的 u32 首字段始终可读。
+        let struct_size = unsafe { ptr.cast::<u32>().read() };
+        if struct_size < size_of::<u32>() as u32 {
+            return Err(incomplete);
+        }
+        Ok(Self { ptr, struct_size })
     }
-    // SAFETY: query_interface 返回宿主静态子表，先只读取冻结的 struct_size 前缀。
-    if unsafe { ptr.cast::<u32>().read() } < size_of::<ferrum_abi::CommandApiV1>() as u32 {
-        return Err(Error::new(FerrumStatus::UNSUPPORTED, "命令 API 子表不完整"));
+
+    fn require_field(
+        &self,
+        offset: usize,
+        size: usize,
+        missing: &'static str,
+    ) -> Result<(), Error> {
+        if ferrum_abi::has_field(self.struct_size, offset, size) {
+            Ok(())
+        } else {
+            Err(Error::new(FerrumStatus::UNSUPPORTED, missing))
+        }
     }
-    // SAFETY: 已确认子表非空且大小覆盖 v1 全部槽位，宿主保证静态且对齐。
-    Ok(unsafe { &*ptr })
 }
 
-pub(crate) fn block_api() -> Result<&'static ferrum_abi::BlockApiV1, Error> {
-    let ptr = (api().query_interface)("ferrum.block.v1".into(), 0).cast::<ferrum_abi::BlockApiV1>();
-    if ptr.is_null() {
-        return Err(Error::new(FerrumStatus::UNSUPPORTED, "宿主未提供方块 API"));
-    }
-    // SAFETY: 宿主返回对齐且静态有效的子表，先仅读取冻结的 struct_size 字段。
-    if unsafe { ptr.cast::<u32>().read() } < size_of::<ferrum_abi::BlockApiV1>() as u32 {
-        return Err(Error::new(FerrumStatus::UNSUPPORTED, "方块 API 子表不完整"));
-    }
-    // SAFETY: 已检查非空和完整大小，宿主保证对齐、静态且函数指针有效。
-    Ok(unsafe { &*ptr })
+// 生成类型化槽位访问器：先检查边界，再以原始指针读取字段，绝不借用整表。
+// 返回类型与 ABI 字段类型由编译器核对；每个子表独立缓存成功或失败的查询结果。
+macro_rules! domain_api {
+    ($view:ident, $accessor:ident, $abi:ident, $id:literal, $missing:literal, $incomplete:literal,
+        { $($field:ident: $ty:ty;)* }) => {
+        pub(crate) struct $view(ApiTable);
+
+        impl $view {
+            $(
+                pub(crate) fn $field(&self) -> Result<$ty, Error> {
+                    self.0.require_field(
+                        std::mem::offset_of!(ferrum_abi::$abi, $field),
+                        size_of::<$ty>(),
+                        concat!("宿主未提供 API 槽位：", $id, ".", stringify!($field)),
+                    )?;
+                    let ptr = self.0.ptr.cast::<ferrum_abi::$abi>();
+                    // SAFETY: 指针来自该接口的对齐、不可变静态子表；已确认字段完整存在，
+                    // ABI 保证该槽位为有效函数指针。addr_of! 只投影字段，不构造完整表引用。
+                    Ok(unsafe { std::ptr::addr_of!((*ptr).$field).read() })
+                }
+            )*
+        }
+
+        pub(crate) fn $accessor() -> Result<&'static $view, Error> {
+            static TABLE: OnceLock<Result<$view, &'static str>> = OnceLock::new();
+            TABLE
+                .get_or_init(|| ApiTable::query($id, $missing, $incomplete).map($view))
+                .as_ref()
+                .map_err(|message| Error::new(FerrumStatus::UNSUPPORTED, *message))
+        }
+    };
 }
 
-pub(crate) fn actor_api() -> Result<&'static ferrum_abi::ActorApiV1, Error> {
-    let ptr = (api().query_interface)("ferrum.actor.v1".into(), 0).cast::<ferrum_abi::ActorApiV1>();
-    if ptr.is_null() {
-        return Err(Error::new(FerrumStatus::UNSUPPORTED, "宿主未提供实体 API"));
-    }
-    // SAFETY: 宿主返回对齐的静态子表，先读取固定的 struct_size 前缀。
-    if unsafe { ptr.cast::<u32>().read() } < size_of::<ferrum_abi::ActorApiV1>() as u32 {
-        return Err(Error::new(FerrumStatus::UNSUPPORTED, "实体 API 子表不完整"));
-    }
-    // SAFETY: 子表非空、完整且对齐，宿主保证进程生命周期内有效。
-    Ok(unsafe { &*ptr })
-}
-pub(crate) fn mob_api() -> Result<&'static ferrum_abi::MobApiV1, Error> {
-    let ptr = (api().query_interface)("ferrum.mob.v1".into(), 0).cast::<ferrum_abi::MobApiV1>();
-    if ptr.is_null() {
-        return Err(Error::new(FerrumStatus::UNSUPPORTED, "宿主未提供生物 API"));
-    }
-    // SAFETY: 宿主返回对齐的静态子表，先读取固定的 struct_size 前缀。
-    if unsafe { ptr.cast::<u32>().read() } < size_of::<ferrum_abi::MobApiV1>() as u32 {
-        return Err(Error::new(FerrumStatus::UNSUPPORTED, "生物 API 子表不完整"));
-    }
-    // SAFETY: 子表非空、完整且对齐，宿主保证进程生命周期内有效。
-    Ok(unsafe { &*ptr })
-}
+domain_api!(PlayerApi, player_api, PlayerApiV1, "ferrum.player.v1",
+    "宿主未提供玩家 API（需要 ABI 1.1）", "玩家 API 子表不完整", {
+    find_by_name: extern "C" fn(FfiStr<'_>, *mut ActorRuntimeId) -> FerrumStatus;
+    find_by_uuid: extern "C" fn(PlayerUuid, *mut ActorRuntimeId) -> FerrumStatus;
+    online_players: extern "C" fn(*mut FfiByteWriter) -> FerrumStatus;
+    real_name: extern "C" fn(ActorRuntimeId, *mut FfiByteWriter) -> FerrumStatus;
+    uuid: extern "C" fn(ActorRuntimeId, *mut PlayerUuid) -> FerrumStatus;
+    send_message: extern "C" fn(ActorRuntimeId, FfiStr<'_>) -> FerrumStatus;
+    is_operator: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    game_mode: extern "C" fn(ActorRuntimeId, *mut GameMode) -> FerrumStatus;
+    set_game_mode: extern "C" fn(ActorRuntimeId, GameMode) -> FerrumStatus;
+});
+
+domain_api!(CommandApi, command_api, CommandApiV1, "ferrum.command.v1",
+    "宿主未提供命令 API（需要 ABI 1.1）", "命令 API 子表不完整", {
+    register: extern "C" fn(ModContextHandle, *const CommandDefinitionV1<'_>, CommandCallbackV1, *mut CommandHandle) -> FerrumStatus;
+    unregister: extern "C" fn(ModContextHandle, CommandHandle) -> FerrumStatus;
+    origin_player: extern "C" fn(ModContextHandle, CommandScopeHandle, *mut ActorRuntimeId) -> FerrumStatus;
+    get_int: extern "C" fn(ModContextHandle, CommandScopeHandle, FfiStr<'_>, *mut i32) -> FerrumStatus;
+    get_float: extern "C" fn(ModContextHandle, CommandScopeHandle, FfiStr<'_>, *mut f32) -> FerrumStatus;
+    get_bool: extern "C" fn(ModContextHandle, CommandScopeHandle, FfiStr<'_>, *mut FfiBool) -> FerrumStatus;
+    get_string: extern "C" fn(ModContextHandle, CommandScopeHandle, FfiStr<'_>, *mut FfiByteWriter) -> FerrumStatus;
+    get_players: extern "C" fn(ModContextHandle, CommandScopeHandle, FfiStr<'_>, *mut FfiByteWriter) -> FerrumStatus;
+    output: extern "C" fn(ModContextHandle, CommandScopeHandle, FfiBool, FfiStr<'_>) -> FerrumStatus;
+});
+
+domain_api!(BlockApi, block_api, BlockApiV1, "ferrum.block.v1",
+    "宿主未提供方块 API", "方块 API 子表不完整", {
+    type_name: extern "C" fn(DimensionId, BlockPos, *mut FfiByteWriter) -> FerrumStatus;
+    runtime_id: extern "C" fn(DimensionId, BlockPos, *mut BlockRuntimeId) -> FerrumStatus;
+    is_air: extern "C" fn(DimensionId, BlockPos, *mut FfiBool) -> FerrumStatus;
+    set_type: extern "C" fn(DimensionId, BlockPos, FfiStr<'_>) -> FerrumStatus;
+});
+
+domain_api!(ActorApi, actor_api, ActorApiV1, "ferrum.actor.v1",
+    "宿主未提供实体 API", "实体 API 子表不完整", {
+    find_by_unique_id: extern "C" fn(ActorUniqueId, *mut ActorRuntimeId) -> FerrumStatus;
+    unique_id: extern "C" fn(ActorRuntimeId, *mut ActorUniqueId) -> FerrumStatus;
+    type_name: extern "C" fn(ActorRuntimeId, *mut FfiByteWriter) -> FerrumStatus;
+    kind: extern "C" fn(ActorRuntimeId, *mut ActorKind) -> FerrumStatus;
+    position: extern "C" fn(ActorRuntimeId, *mut Vec3) -> FerrumStatus;
+    dimension: extern "C" fn(ActorRuntimeId, *mut DimensionId) -> FerrumStatus;
+    teleport: extern "C" fn(ActorRuntimeId, Vec3, DimensionId) -> FerrumStatus;
+});
+
+domain_api!(MobApi, mob_api, MobApiV1, "ferrum.mob.v1",
+    "宿主未提供生物 API", "生物 API 子表不完整", {
+    health: extern "C" fn(ActorRuntimeId, *mut f32) -> FerrumStatus;
+    max_health: extern "C" fn(ActorRuntimeId, *mut f32) -> FerrumStatus;
+    set_health: extern "C" fn(ActorRuntimeId, f32) -> FerrumStatus;
+});
 
 /// 宿主调用失败后立即取回 last-error，组装为 [`Error`]。
 pub(crate) fn error_from_status(status: FerrumStatus) -> Error {

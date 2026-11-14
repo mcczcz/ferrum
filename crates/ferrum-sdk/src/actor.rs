@@ -59,30 +59,39 @@ pub trait ActorOps<'tick>: sealed::Sealed + Copy {
     }
     fn unique_id(&self) -> Result<ActorUniqueId> {
         let mut out = ActorUniqueId::default();
-        host::check((host::actor_api()?.unique_id)(self.as_actor().id, &mut out))?;
+        host::check((host::actor_api()?.unique_id()?)(
+            self.as_actor().id,
+            &mut out,
+        ))?;
         Ok(out)
     }
     fn type_name(&self) -> Result<String> {
-        let a = host::actor_api()?;
-        host::read_string(|w| (a.type_name)(self.as_actor().id, w))
+        let type_name = host::actor_api()?.type_name()?;
+        host::read_string(|w| type_name(self.as_actor().id, w))
     }
     fn kind(&self) -> Result<ActorKind> {
         let mut out = ActorKind::ACTOR;
-        host::check((host::actor_api()?.kind)(self.as_actor().id, &mut out))?;
+        host::check((host::actor_api()?.kind()?)(self.as_actor().id, &mut out))?;
         Ok(out)
     }
     fn position(&self) -> Result<Vec3> {
         let mut out = Vec3::default();
-        host::check((host::actor_api()?.position)(self.as_actor().id, &mut out))?;
+        host::check((host::actor_api()?.position()?)(
+            self.as_actor().id,
+            &mut out,
+        ))?;
         Ok(out)
     }
     fn dimension(&self) -> Result<DimensionId> {
         let mut out = DimensionId::default();
-        host::check((host::actor_api()?.dimension)(self.as_actor().id, &mut out))?;
+        host::check((host::actor_api()?.dimension()?)(
+            self.as_actor().id,
+            &mut out,
+        ))?;
         Ok(out)
     }
     fn teleport(&self, position: Vec3, dimension: DimensionId) -> Result<()> {
-        host::check((host::actor_api()?.teleport)(
+        host::check((host::actor_api()?.teleport()?)(
             self.as_actor().id,
             position,
             dimension,

@@ -30,13 +30,13 @@ impl<'tick> BlockRef<'tick> {
         self.dimension
     }
     pub fn type_name(&self) -> Result<String> {
-        let api = host::block_api()?;
-        host::read_string(|w| (api.type_name)(self.dimension, self.position, w))
+        let type_name = host::block_api()?.type_name()?;
+        host::read_string(|w| type_name(self.dimension, self.position, w))
     }
     /// 当前进程注册表 ID，不能跨版本或跨重启保存。
     pub fn runtime_id(&self) -> Result<BlockRuntimeId> {
         let mut out = BlockRuntimeId::default();
-        host::check((host::block_api()?.runtime_id)(
+        host::check((host::block_api()?.runtime_id()?)(
             self.dimension,
             self.position,
             &mut out,
@@ -45,7 +45,7 @@ impl<'tick> BlockRef<'tick> {
     }
     pub fn is_air(&self) -> Result<bool> {
         let mut out = FfiBool::FALSE;
-        host::check((host::block_api()?.is_air)(
+        host::check((host::block_api()?.is_air()?)(
             self.dimension,
             self.position,
             &mut out,
@@ -54,7 +54,7 @@ impl<'tick> BlockRef<'tick> {
     }
     /// 放置该类型的默认状态；更新邻居和客户端，不模拟玩家放置或破坏掉落。
     pub fn set_type(&self, name: &str) -> Result<()> {
-        host::check((host::block_api()?.set_type)(
+        host::check((host::block_api()?.set_type()?)(
             self.dimension,
             self.position,
             name.into(),

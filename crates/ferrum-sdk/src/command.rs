@@ -33,7 +33,7 @@ impl Commands {
     }
     pub fn unregister(&self, token: &MainThreadToken<'_>, handle: CommandHandle) -> Result<()> {
         let _ = token;
-        host::check((host::command_api()?.unregister)(self.ctx, handle))
+        host::check((host::command_api()?.unregister()?)(self.ctx, handle))
     }
 }
 
@@ -62,7 +62,7 @@ impl CommandBuilder {
             + 'static,
     {
         let _ = token;
-        let api = host::command_api()?;
+        let register = host::command_api()?.register()?;
         let params: Vec<_> = self
             .params
             .iter()
@@ -92,7 +92,7 @@ impl CommandBuilder {
             drop_fn: drop_callback::<F>,
         };
         let mut out = MaybeUninit::<CommandHandle>::uninit();
-        let status = (api.register)(self.ctx, &definition, callback, out.as_mut_ptr());
+        let status = register(self.ctx, &definition, callback, out.as_mut_ptr());
         if !status.is_ok() {
             let error = host::error_from_status(status);
             drop_callback::<F>(env.cast());
@@ -176,37 +176,37 @@ impl<'tick> CommandInvocation<'tick> {
     pub fn player(&self) -> Result<Option<PlayerRef<'tick>>> {
         let mut id = ferrum_abi::ActorRuntimeId::default();
         optional(
-            (host::command_api()?.origin_player)(self.ctx, self.scope, &mut id),
+            (host::command_api()?.origin_player()?)(self.ctx, self.scope, &mut id),
             id,
         )
         .map(|p| p.map(|id| PlayerRef::new(id, self.token)))
     }
     pub fn int(&self, name: &str) -> Result<Option<i32>> {
         let mut out = 0;
-        let s = (host::command_api()?.get_int)(self.ctx, self.scope, name.into(), &mut out);
+        let s = (host::command_api()?.get_int()?)(self.ctx, self.scope, name.into(), &mut out);
         optional(s, out)
     }
     pub fn float(&self, name: &str) -> Result<Option<f32>> {
         let mut out = 0.;
-        let s = (host::command_api()?.get_float)(self.ctx, self.scope, name.into(), &mut out);
+        let s = (host::command_api()?.get_float()?)(self.ctx, self.scope, name.into(), &mut out);
         optional(s, out)
     }
     pub fn bool(&self, name: &str) -> Result<Option<bool>> {
         let mut out = FfiBool::FALSE;
-        let s = (host::command_api()?.get_bool)(self.ctx, self.scope, name.into(), &mut out);
+        let s = (host::command_api()?.get_bool()?)(self.ctx, self.scope, name.into(), &mut out);
         optional(s, out.get())
     }
     pub fn string(&self, name: &str) -> Result<Option<String>> {
-        let api = host::command_api()?;
-        match host::read_bytes(|w| (api.get_string)(self.ctx, self.scope, name.into(), w)) {
+        let get_string = host::command_api()?.get_string()?;
+        match host::read_bytes(|w| get_string(self.ctx, self.scope, name.into(), w)) {
             Ok(bytes) => Ok(Some(String::from_utf8(bytes)?)),
             Err(FerrumStatus::NOT_FOUND) => Ok(None),
             Err(s) => Err(host::error_from_status(s)),
         }
     }
     pub fn players(&self, name: &str) -> Result<Option<Vec<PlayerRef<'tick>>>> {
-        let api = host::command_api()?;
-        match host::read_bytes(|w| (api.get_players)(self.ctx, self.scope, name.into(), w)) {
+        let get_players = host::command_api()?.get_players()?;
+        match host::read_bytes(|w| get_players(self.ctx, self.scope, name.into(), w)) {
             Ok(bytes) => player::decode_players(bytes, self.token).map(Some),
             Err(FerrumStatus::NOT_FOUND) => Ok(None),
             Err(s) => Err(host::error_from_status(s)),
@@ -219,7 +219,7 @@ impl<'tick> CommandInvocation<'tick> {
         self.output(true, text.as_ref())
     }
     fn output(&self, error: bool, text: &str) -> Result<()> {
-        host::check((host::command_api()?.output)(
+        host::check((host::command_api()?.output()?)(
             self.ctx,
             self.scope,
             error.into(),

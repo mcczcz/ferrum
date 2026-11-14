@@ -130,7 +130,8 @@ pub type ModEntryFnV1 = unsafe extern "C" fn(
 
 1. **首字段 `struct_size: u32` 强制原则**
    - 所有可扩展的公开 `#[repr(C)]` 结构体（VTable、通过指针传递的配置项与事件载荷）第一个字段**必须**是 `pub struct_size: u32`（值为 `size_of::<Self>() as u32`）。
-   - 读取方在访问 `v1.x` 新增的尾部字段前，必须检查 `table.struct_size as usize >= offset_of!(Table, new_field) + size_of_val(&table.new_field)`。SDK 统一封装为 `api.require_field(offset_of!(..))`。
+   - 读取方在访问函数指针字段前，必须检查 `struct_size as usize >= offset_of!(Table, field) + size_of::<FieldType>()`。SDK 统一由类型化槽位访问器调用 `require_field(offset, size, diagnostic)`，通过后才用原始指针读取该字段。不得先构造完整新版表引用，或以 `&table.field` 取得尚未确认存在的字段大小；也不得以当前 SDK 的整表大小拒绝仍有可用旧槽位的宿主。
+   - SDK 按接口独立使用 `OnceLock` 懒缓存原始子表指针和 `struct_size`，同时缓存接口缺失、无效表头的查询结果。缓存仅适用于宿主保证进程生命周期内不可变的接口表；调用时仍按所需槽位检查边界，缺少尾部字段只让对应方法返回 `UNSUPPORTED`。
    - 按值传递的冻结结构体（见第 3 条）不需要 `struct_size`。
 2. **只增不改、只尾追加（Append-Only）**
    - 在同一个主版本（如 `major = 1`）生命周期内，已发布子表中的任何既有字段：**严禁删除、严禁重排顺序、严禁修改函数签名或参数语义**。

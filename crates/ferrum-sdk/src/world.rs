@@ -10,7 +10,7 @@ pub fn get_actor_by_runtime_id<'tick>(
     id: ActorRuntimeId,
 ) -> Result<Option<ActorRef<'tick>>> {
     let mut kind = ferrum_abi::ActorKind::ACTOR;
-    let status = (host::actor_api()?.kind)(id, &mut kind);
+    let status = (host::actor_api()?.kind()?)(id, &mut kind);
     if status == FerrumStatus::NOT_FOUND {
         return Ok(None);
     }
@@ -23,7 +23,7 @@ pub fn get_actor<'tick>(
     id: ActorUniqueId,
 ) -> Result<Option<ActorRef<'tick>>> {
     let mut runtime = ActorRuntimeId::default();
-    let status = (host::actor_api()?.find_by_unique_id)(id, &mut runtime);
+    let status = (host::actor_api()?.find_by_unique_id()?)(id, &mut runtime);
     if status == FerrumStatus::NOT_FOUND {
         return Ok(None);
     }
@@ -35,7 +35,7 @@ pub fn get_player<'tick>(
     uuid: PlayerUuid,
 ) -> Result<Option<PlayerRef<'tick>>> {
     let mut id = ActorRuntimeId::default();
-    let status = (host::player_api()?.find_by_uuid)(uuid, &mut id);
+    let status = (host::player_api()?.find_by_uuid()?)(uuid, &mut id);
     if status == FerrumStatus::NOT_FOUND {
         return Ok(None);
     }
@@ -47,7 +47,7 @@ pub fn get_player_by_name<'tick>(
     name: &str,
 ) -> Result<Option<PlayerRef<'tick>>> {
     let mut id = ActorRuntimeId::default();
-    let status = (host::player_api()?.find_by_name)(FfiStr::new(name), &mut id);
+    let status = (host::player_api()?.find_by_name()?)(FfiStr::new(name), &mut id);
     if status == FerrumStatus::NOT_FOUND {
         return Ok(None);
     }
@@ -57,9 +57,9 @@ pub fn get_player_by_name<'tick>(
 pub fn online_players<'tick>(
     token: &'tick MainThreadToken<'tick>,
 ) -> Result<Vec<PlayerRef<'tick>>> {
-    let api = host::player_api()?;
+    let online_players = host::player_api()?.online_players()?;
     decode_players(
-        host::read_bytes(|w| (api.online_players)(w)).map_err(host::error_from_status)?,
+        host::read_bytes(|w| online_players(w)).map_err(host::error_from_status)?,
         token,
     )
 }

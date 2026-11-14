@@ -37,16 +37,19 @@ pub trait MobOps<'tick>: ActorOps<'tick> {
     /// 当前生命值，2 点为 1 颗心，不截断小数。
     fn health(&self) -> Result<f32> {
         let mut out = 0.;
-        host::check((host::mob_api()?.health)(self.runtime_id(), &mut out))?;
+        host::check((host::mob_api()?.health()?)(self.runtime_id(), &mut out))?;
         Ok(out)
     }
     fn max_health(&self) -> Result<f32> {
         let mut out = 0.;
-        host::check((host::mob_api()?.max_health)(self.runtime_id(), &mut out))?;
+        host::check((host::mob_api()?.max_health()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
         Ok(out)
     }
     /// 直接设置有限的 0..=max_health 属性值，不模拟受伤/治疗。
     fn set_health(&self, value: f32) -> Result<()> {
-        host::check((host::mob_api()?.set_health)(self.runtime_id(), value))
+        host::check((host::mob_api()?.set_health()?)(self.runtime_id(), value))
     }
 }

@@ -96,18 +96,19 @@ static FerrumStatus shimPlayerGetPing(
 
 在 `ferrum-sdk` 中隐藏所有裸指针、`FfiByteWriter` 和状态码转换细节，暴露零 `unsafe` 的地道 Rust 方法，并标注最低所需 ABI 次版本说明：
 
+在 `host.rs` 对应的 `domain_api!` 声明中登记新槽位名与 ABI 函数指针类型。生成的访问器会检查该槽位的偏移和类型大小，再从原始子表读取函数指针；不会创建完整新版表引用。每个领域的查询结果（含接口缺失、无效表头）独立缓存，新增尾部槽位不影响旧槽位使用。下面假设已登记 `get_ping` 槽位：
+
 ```rust
 impl<'a> PlayerRef<'a> {
     /// 获取玩家当前网络平均延迟（毫秒）。
     pub fn ping_ms(&self) -> Result<i32> {
-        let api = host_api().player_v1()?;
-        // 若允许在更低版本宿主上优雅降级，先检查 struct_size 边界：
-        api.require_field(core::mem::offset_of!(PlayerApiV1, get_ping))?;
+        // 槽位不存在时返回 UNSUPPORTED，已有的玩家 API 仍然可用。
+        let get_ping = host::player_api()?.get_ping()?;
 
         let mut out_ping: i32 = 0;
-        // SAFETY: get_ping 槽位已由 require_field 确认存在；out_ping 位于当前栈帧且在调用期间独占。
-        let status = unsafe { (api.get_ping)(self.id, &mut out_ping) };
-        status.into_result_with_last_error().map(|()| out_ping)
+        let status = get_ping(self.runtime_id(), &mut out_ping);
+        host::check(status)?;
+        Ok(out_ping)
     }
 }
 ```
