@@ -70,6 +70,7 @@ pub struct ModEntry {
     state: AtomicU8,
     descriptor: OnceLock<FerrumModDescriptor>,
     pub breaker: Mutex<CircuitBreaker>,
+    pub ownership: Mutex<crate::command::ModOwnership>,
 }
 
 impl ModEntry {
@@ -79,6 +80,7 @@ impl ModEntry {
             state: AtomicU8::new(ModState::Loading as u8),
             descriptor: OnceLock::new(),
             breaker: Mutex::new(CircuitBreaker::default()),
+            ownership: Mutex::new(crate::command::ModOwnership::default()),
         }
     }
 

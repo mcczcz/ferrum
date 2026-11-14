@@ -23,7 +23,13 @@
 
 **验收**：`examples/hello` 在 BDS 中完成 load → enable → disable → reload → 关服；在 `on_enable` 中故意 panic 不崩服且模组进入 `Disabled`。
 
-## M2：回调基础设施与第一批领域 API（下一步 / 未开始）
+## M2：回调基础设施与第一批领域 API（进行中）
+
+开发阶段已将玩家基础能力与坐标、维度、跨维度传送、当前/最大生命值、设置当前生命值及游戏模式读写统一为 ABI 1.1 的 `PlayerApiV1`，mock 同步支持。
+
+已按 `ActorRef → MobRef → PlayerRef` 组合分层公共能力，增加逻辑实体 ID 查找、类型校验转换和独立 Actor/Mob 子表；已有玩家便捷方法内部复用公共实现。另增加已加载区块内的方块类型名/runtime ID/空气查询与默认类型设置/设为空气，提供独立 `BlockApiV1` 和 mock。开发版仍使用 ABI 1.1，各子表 minor 0。
+
+已完成 ABI 1.1 的命令 Builder（Int/Float/Bool/String/Player）、执行参数与输出、玩家名称/UUID 查找与在线列表、玩家名称/UUID/消息/OP 判断，并接通主线程检查、命令资源归属、停用排空、重入与 panic 防火墙以及 mock。事件 API 和真实 BDS 场景验收仍待完成，M2 尚未验收。
 
 - 强类型回调结构体、`ModOwnership`、停用协议（关闸 → 通知 → 撤销 → 排空）、自我停用的延迟执行。
 - SDK：`FnMut` 重入守卫、panic 毒化、HRTB 令牌签名。

@@ -112,6 +112,193 @@ typedef uint8_t FfiBool;
 #define FfiBool_TRUE 1
 
 /**
+ * 当次会话内的实体标识；跨 Tick 保存请使用 ActorUniqueId 或 PlayerUuid。
+ */
+typedef uint64_t ActorRuntimeId;
+
+/**
+ * 标准 UUID 网络字节序，布局永久冻结。
+ */
+typedef struct PlayerUuid {
+  uint8_t bytes[16];
+} PlayerUuid;
+
+/**
+ * 写入器回调：在调用方（通常是模组）堆上追加 `bytes`。
+ */
+typedef FerrumStatus (*FfiWriteFn)(void *context, const uint8_t *bytes, size_t len);
+
+/**
+ * 由调用方在栈上构造、传给被调用方用于输出变长数据的写入器。
+ *
+ * - 被调用方可多次调用 `write_fn`（追加语义）；
+ * - `write_fn` 返回非 `OK` 时，被调用方必须立即停止写入并原样返回该状态；
+ * - 被调用方不得在调用返回后保留本结构或其 `context`。
+ */
+typedef struct FfiByteWriter {
+  void *context;
+  FfiWriteFn write_fn;
+} FfiByteWriter;
+
+typedef struct FerrumVec3 {
+  float x;
+  float y;
+  float z;
+} FerrumVec3;
+
+typedef int32_t FerrumDimensionId;
+#define FerrumDimensionId_OVERWORLD 0
+#define FerrumDimensionId_NETHER 1
+#define FerrumDimensionId_THE_END 2
+
+/**
+ * Ferrum 的稳定游戏模式码，未知值必须保留而非转为封闭枚举。
+ */
+typedef uint32_t FerrumGameMode;
+#define FerrumGameMode_SURVIVAL 0
+#define FerrumGameMode_CREATIVE 1
+#define FerrumGameMode_ADVENTURE 2
+#define FerrumGameMode_SPECTATOR 3
+#define FerrumGameMode_UNKNOWN UINT32_MAX
+
+/**
+ * ABI 1.1 玩家接口；所有操作仅允许在主线程调用。
+ */
+typedef struct PlayerApiV1 {
+  uint32_t struct_size;
+  FerrumStatus (*find_by_name)(struct FfiStr, ActorRuntimeId*);
+  FerrumStatus (*find_by_uuid)(struct PlayerUuid, ActorRuntimeId*);
+  /**
+   * 输出逐个小端编码的 u64 runtime ID，不输出宿主容器。
+   */
+  FerrumStatus (*online_players)(struct FfiByteWriter*);
+  FerrumStatus (*real_name)(ActorRuntimeId, struct FfiByteWriter*);
+  FerrumStatus (*uuid)(ActorRuntimeId, struct PlayerUuid*);
+  FerrumStatus (*send_message)(ActorRuntimeId, struct FfiStr);
+  FerrumStatus (*is_operator)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*position)(ActorRuntimeId, struct FerrumVec3*);
+  FerrumStatus (*dimension)(ActorRuntimeId, FerrumDimensionId*);
+  /**
+   * 目标维度必须已存在，传送保留朝向，坐标必须有限。
+   */
+  FerrumStatus (*teleport)(ActorRuntimeId, struct FerrumVec3, FerrumDimensionId);
+  FerrumStatus (*health)(ActorRuntimeId, float*);
+  FerrumStatus (*max_health)(ActorRuntimeId, float*);
+  /**
+   * 直接设置属性，不模拟伤害/治疗事件；范围为 0..=max_health。
+   */
+  FerrumStatus (*set_health)(ActorRuntimeId, float);
+  FerrumStatus (*game_mode)(ActorRuntimeId, FerrumGameMode*);
+  FerrumStatus (*set_game_mode)(ActorRuntimeId, FerrumGameMode);
+} PlayerApiV1;
+
+/**
+ * 64 位非零代数句柄：低 32 位为槽位下标，高 32 位为代数（恒非零）。
+ */
+typedef uint64_t GenerationalHandle;
+
+typedef GenerationalHandle CommandHandle;
+
+typedef uint32_t CommandPermission;
+#define CommandPermission_ANY 0
+#define CommandPermission_GAME_DIRECTORS 1
+#define CommandPermission_ADMIN 2
+#define CommandPermission_HOST 3
+#define CommandPermission_OWNER 4
+
+typedef uint32_t CommandParamKind;
+#define CommandParamKind_INT 0
+#define CommandParamKind_FLOAT 1
+#define CommandParamKind_BOOL 2
+#define CommandParamKind_STRING 3
+#define CommandParamKind_PLAYER 4
+
+/**
+ * 冻结的参数描述；显式保留字节使切片元素无未初始化填充。
+ */
+typedef struct CommandParamV1 {
+  struct FfiStr name;
+  CommandParamKind kind;
+  FfiBool optional;
+  uint8_t reserved[3];
+} CommandParamV1;
+
+/**
+ * 连续元素的只读借用切片（`T` 必须为 `#[repr(C)]` 且无未初始化填充字节）。
+ */
+typedef struct FfiSlice_CommandParamV1 {
+  const struct CommandParamV1 *ptr;
+  size_t len;
+} FfiSlice_CommandParamV1;
+
+typedef struct CommandDefinitionV1 {
+  uint32_t struct_size;
+  struct FfiStr name;
+  struct FfiStr description;
+  CommandPermission permission;
+  struct FfiSlice_CommandParamV1 params;
+} CommandDefinitionV1;
+
+/**
+ * 方块整数坐标，按值传递且布局冻结；实际访问仍需主线程令牌。
+ */
+typedef struct FerrumBlockPos {
+  int32_t x;
+  int32_t y;
+  int32_t z;
+} FerrumBlockPos;
+
+/**
+ * 当前进程/注册表的状态 ID，不能落盘或跨版本保存。
+ */
+typedef uint32_t BlockRuntimeId;
+
+/**
+ * 主方块层；按维度/坐标实时解析，只访问已加载区块。
+ */
+typedef struct BlockApiV1 {
+  uint32_t struct_size;
+  FerrumStatus (*type_name)(FerrumDimensionId, struct FerrumBlockPos, struct FfiByteWriter*);
+  FerrumStatus (*runtime_id)(FerrumDimensionId, struct FerrumBlockPos, BlockRuntimeId*);
+  FerrumStatus (*is_air)(FerrumDimensionId, struct FerrumBlockPos, FfiBool*);
+  /**
+   * 按名称放置默认状态，更新邻居并同步客户端；不生成破坏掉落。
+   */
+  FerrumStatus (*set_type)(FerrumDimensionId, struct FerrumBlockPos, struct FfiStr);
+} BlockApiV1;
+
+typedef int64_t ActorUniqueId;
+
+/**
+ * Ferrum 能力类别，不暴露 MC 内部枚举；未知值不得转为封闭枚举。
+ */
+typedef uint32_t ActorKind;
+#define ActorKind_ACTOR 0
+#define ActorKind_MOB 1
+#define ActorKind_PLAYER 2
+
+typedef struct ActorApiV1 {
+  uint32_t struct_size;
+  FerrumStatus (*find_by_unique_id)(ActorUniqueId, ActorRuntimeId*);
+  FerrumStatus (*unique_id)(ActorRuntimeId, ActorUniqueId*);
+  FerrumStatus (*type_name)(ActorRuntimeId, struct FfiByteWriter*);
+  FerrumStatus (*kind)(ActorRuntimeId, ActorKind*);
+  FerrumStatus (*position)(ActorRuntimeId, struct FerrumVec3*);
+  FerrumStatus (*dimension)(ActorRuntimeId, FerrumDimensionId*);
+  FerrumStatus (*teleport)(ActorRuntimeId, struct FerrumVec3, FerrumDimensionId);
+} ActorApiV1;
+
+/**
+ * 生物能力。非生物返回 INVALID_ARGUMENT；目标消失返回 NOT_FOUND。
+ */
+typedef struct MobApiV1 {
+  uint32_t struct_size;
+  FerrumStatus (*health)(ActorRuntimeId, float*);
+  FerrumStatus (*max_health)(ActorRuntimeId, float*);
+  FerrumStatus (*set_health)(ActorRuntimeId, float);
+} MobApiV1;
+
+/**
  * `cpp-shim` 在 `ferrum_host_init` 时注入的函数表。全部函数必须 `noexcept`。
  */
 typedef struct FerrumShimApi {
@@ -136,6 +323,19 @@ typedef struct FerrumShimApi {
    * 宿主不再使用该 cookie（最后一个 `Arc<ModEntry>` 释放时调用，任意线程）。
    */
   void (*release_cookie)(ShimModCookie cookie);
+  struct PlayerApiV1 player_v1;
+  FerrumStatus (*command_register)(ShimModCookie, CommandHandle, const struct CommandDefinitionV1*);
+  FerrumStatus (*command_unregister)(ShimModCookie, CommandHandle);
+  FerrumStatus (*command_origin)(uint64_t, ActorRuntimeId*);
+  FerrumStatus (*command_int)(uint64_t, struct FfiStr, int32_t*);
+  FerrumStatus (*command_float)(uint64_t, struct FfiStr, float*);
+  FerrumStatus (*command_bool)(uint64_t, struct FfiStr, FfiBool*);
+  FerrumStatus (*command_string)(uint64_t, struct FfiStr, struct FfiByteWriter*);
+  FerrumStatus (*command_players)(uint64_t, struct FfiStr, struct FfiByteWriter*);
+  FerrumStatus (*command_output)(uint64_t, FfiBool, struct FfiStr);
+  struct BlockApiV1 block_v1;
+  struct ActorApiV1 actor_v1;
+  struct MobApiV1 mob_v1;
 } FerrumShimApi;
 
 typedef struct AbiVersion {
@@ -161,28 +361,6 @@ typedef struct ShimModInfo {
   struct FfiStr config_dir;
   struct FfiStr lang_dir;
 } ShimModInfo;
-
-/**
- * 写入器回调：在调用方（通常是模组）堆上追加 `bytes`。
- */
-typedef FerrumStatus (*FfiWriteFn)(void *context, const uint8_t *bytes, size_t len);
-
-/**
- * 由调用方在栈上构造、传给被调用方用于输出变长数据的写入器。
- *
- * - 被调用方可多次调用 `write_fn`（追加语义）；
- * - `write_fn` 返回非 `OK` 时，被调用方必须立即停止写入并原样返回该状态；
- * - 被调用方不得在调用返回后保留本结构或其 `context`。
- */
-typedef struct FfiByteWriter {
-  void *context;
-  FfiWriteFn write_fn;
-} FfiByteWriter;
-
-/**
- * 64 位非零代数句柄：低 32 位为槽位下标，高 32 位为代数（恒非零）。
- */
-typedef uint64_t GenerationalHandle;
 
 /**
  * 宿主为每个已加载模组分配的上下文句柄，宿主据此识别调用方并校验归属。
@@ -324,9 +502,60 @@ typedef FerrumStatus (*ModEntryFnV1)(const struct FerrumHostApi *host_api,
                                      ModContextHandle mod_ctx,
                                      struct FerrumModDescriptor *out_descriptor);
 
+/**
+ * 只在一次同步命令执行期间有效。
+ */
+typedef GenerationalHandle CommandScopeHandle;
+
+/**
+ * 多次调用；注册返回 OK 才转移 env 所有权，失败时仍由调用方释放。
+ * invoke_fn 和 drop_fn 只会在主线程、宿主未持锁时执行。
+ */
+typedef struct CommandCallbackV1 {
+  void *env;
+  FerrumStatus (*invoke_fn)(void*, CommandScopeHandle, struct RawMainThreadToken);
+  void (*drop_fn)(void*);
+} CommandCallbackV1;
+
+/**
+ * ABI 1.1 命令接口；scope 的每次访问同时校验调用模组与主线程。
+ */
+typedef struct CommandApiV1 {
+  uint32_t struct_size;
+  FerrumStatus (*register_)(ModContextHandle,
+                            const struct CommandDefinitionV1*,
+                            struct CommandCallbackV1,
+                            CommandHandle*);
+  FerrumStatus (*unregister)(ModContextHandle, CommandHandle);
+  FerrumStatus (*origin_player)(ModContextHandle, CommandScopeHandle, ActorRuntimeId*);
+  /**
+   * 未提供的可选参数返回 NOT_FOUND；类型不符返回 INVALID_ARGUMENT。
+   */
+  FerrumStatus (*get_int)(ModContextHandle, CommandScopeHandle, struct FfiStr, int32_t*);
+  FerrumStatus (*get_float)(ModContextHandle, CommandScopeHandle, struct FfiStr, float*);
+  FerrumStatus (*get_bool)(ModContextHandle, CommandScopeHandle, struct FfiStr, FfiBool*);
+  FerrumStatus (*get_string)(ModContextHandle,
+                             CommandScopeHandle,
+                             struct FfiStr,
+                             struct FfiByteWriter*);
+  /**
+   * 选择器在每次读取时重新解析，输出与 online_players 相同。
+   */
+  FerrumStatus (*get_players)(ModContextHandle,
+                              CommandScopeHandle,
+                              struct FfiStr,
+                              struct FfiByteWriter*);
+  FerrumStatus (*output)(ModContextHandle, CommandScopeHandle, FfiBool, struct FfiStr);
+} CommandApiV1;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * cpp-shim 只传入自身栈帧的数字标识，游戏指针留在 C++ 内。
+ */
+FerrumStatus ferrum_host_dispatch_command(uint64_t raw, uint64_t shim_scope);
 
 /**
  * 安装 shim 函数表。必须在其他任何 `ferrum_host_*` 调用之前、且只调用一次。
@@ -342,9 +571,19 @@ FerrumStatus ferrum_host_init(const struct FerrumShimApi *api);
 struct AbiVersion ferrum_host_abi_version(void);
 
 /**
+ * shim 将 C++ 异常详情写入同一线程的错误槽。
+ */
+FerrumStatus ferrum_host_set_last_error(struct FfiStr message);
+
+/**
  * 由 shim 在服务端主线程上调用，记录主线程 ID。
  */
 void ferrum_host_mark_main_thread(void);
+
+/**
+ * shim 在派发前确认当前线程，不会修改已记录的主线程。
+ */
+FfiBool ferrum_host_is_main_thread(void);
 
 /**
  * 加载一个 `type = "ferrum"` 模组并执行其 `on_load`。成功时写出上下文句柄。

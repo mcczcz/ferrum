@@ -53,6 +53,86 @@ fn assertions() -> Vec<String> {
     lock!(out, FerrumModFlags);
     lock!(out, GenerationalHandle);
     lock!(out, ModContextHandle);
+    lock!(out, ActorRuntimeId);
+    lock!(out, ActorUniqueId);
+    lock!(out, ActorKind);
+    lock!(out, BlockPos, x, y, z);
+    lock!(out, BlockRuntimeId);
+    lock!(
+        out,
+        ActorApiV1,
+        struct_size,
+        find_by_unique_id,
+        unique_id,
+        type_name,
+        kind,
+        position,
+        dimension,
+        teleport
+    );
+    lock!(out, MobApiV1, struct_size, health, max_health, set_health);
+    lock!(
+        out,
+        BlockApiV1,
+        struct_size,
+        type_name,
+        runtime_id,
+        is_air,
+        set_type
+    );
+    lock!(out, PlayerUuid, bytes);
+    lock!(out, Vec3, x, y, z);
+    lock!(out, DimensionId);
+    lock!(out, GameMode);
+    lock!(
+        out,
+        PlayerApiV1,
+        struct_size,
+        find_by_name,
+        find_by_uuid,
+        online_players,
+        real_name,
+        uuid,
+        send_message,
+        is_operator,
+        position,
+        dimension,
+        teleport,
+        health,
+        max_health,
+        set_health,
+        game_mode,
+        set_game_mode
+    );
+    lock!(out, CommandHandle);
+    lock!(out, CommandScopeHandle);
+    lock!(out, CommandPermission);
+    lock!(out, CommandParamKind);
+    lock!(out, CommandCallbackV1, env, invoke_fn, drop_fn);
+    lock!(
+        out,
+        CommandApiV1,
+        struct_size,
+        register,
+        unregister,
+        origin_player,
+        get_int,
+        get_float,
+        get_bool,
+        get_string,
+        get_players,
+        output
+    );
+    lock!(out, CommandParamV1, name, kind, optional, reserved);
+    lock!(
+        out,
+        CommandDefinitionV1,
+        struct_size,
+        name,
+        description,
+        permission,
+        params
+    );
     lock!(out, RawMainThreadToken);
     lock!(out, FfiByteWriter, context, write_fn);
     lock!(

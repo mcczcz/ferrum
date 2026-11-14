@@ -234,6 +234,7 @@ pub fn enable(raw: u64) -> FerrumStatus {
         if !status.is_ok() {
             // on_enable 失败（含 panic）：模组进入 Disabled。
             entry.set_state(ModState::Disabled);
+            crate::command::revoke(ctx);
             return lifecycle_failed(&entry, "on_enable", status);
         }
     }
@@ -243,7 +244,7 @@ pub fn enable(raw: u64) -> FerrumStatus {
 
 /// `FerrumModManager::disable` 的实现，必须在主线程调用。
 ///
-/// M1 只有“关闸 → 通知”两步；撤销与排空随 M2 的回调基础设施一起实现。
+/// 自身命令回调内停用时，通知与排空推迟到最外层回调返回。
 pub fn disable(raw: u64) -> FerrumStatus {
     let (ctx, entry) = match lookup(raw) {
         Ok(v) => v,
@@ -262,22 +263,39 @@ pub fn disable(raw: u64) -> FerrumStatus {
             );
         }
     }
-    let Some(descriptor) = entry.descriptor().copied() else {
-        return fail(FerrumStatus::INTERNAL_ERROR, "模组缺少描述符");
-    };
-
     // 1. 关闸
     entry.set_state(ModState::Disabling);
+    {
+        let mut own = entry.ownership.lock().unwrap_or_else(|e| e.into_inner());
+        if own.active_invocations > 0 {
+            own.pending_disable = true;
+            return FerrumStatus::OK;
+        }
+    }
+    finish_disable(ctx, &entry);
+    FerrumStatus::OK
+}
+
+pub(crate) fn finish_disable(ctx: ModContextHandle, entry: &ModEntry) {
+    let Some(descriptor) = entry.descriptor().copied() else {
+        return;
+    };
     // 2. 通知；无论成功与否，模组最终都进入 Disabled。
     let status = match descriptor.on_disable {
         Some(on_disable) => on_disable(ctx, RawMainThreadToken::ASSERTED),
         None => FerrumStatus::OK,
     };
+    // 3–4. 撤销路由，排空回调；析构不在 ownership 锁内执行。
+    crate::command::revoke(ctx);
+    entry
+        .ownership
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .pending_disable = false;
     entry.set_state(ModState::Disabled);
     if !status.is_ok() {
-        lifecycle_failed(&entry, "on_disable", status);
+        lifecycle_failed(entry, "on_disable", status);
     }
-    FerrumStatus::OK
 }
 
 /// `FerrumModManager::unload` 的实现。成功后句柄失效，镜像保留。
@@ -286,6 +304,28 @@ pub fn unload(raw: u64) -> FerrumStatus {
         Ok(v) => v,
         Err(s) => return s,
     };
+    if !vtable::is_main_thread()
+        && !entry
+            .ownership
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .commands
+            .is_empty()
+    {
+        return fail(FerrumStatus::WRONG_THREAD, "unload 必须在服务端主线程调用");
+    }
+    if entry
+        .ownership
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .active_invocations
+        > 0
+    {
+        return fail(
+            FerrumStatus::REENTRANT_CALL,
+            "不能在执行中的命令回调里同步卸载自身",
+        );
+    }
     if entry.state() == ModState::Enabled {
         let status = disable(raw);
         if !status.is_ok() {
@@ -296,6 +336,7 @@ pub fn unload(raw: u64) -> FerrumStatus {
         return fail(FerrumStatus::INTERNAL_ERROR, "模组缺少描述符");
     };
 
+    crate::command::revoke(ctx);
     entry.set_state(ModState::Unloading);
     let status = match descriptor.on_unload {
         Some(on_unload) => on_unload(ctx),

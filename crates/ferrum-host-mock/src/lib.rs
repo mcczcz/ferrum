@@ -13,6 +13,8 @@
 //! 因此同一进程内的 `MockHost` 互斥存在：[`MockHost::new`] 会等待前一个实例被 drop。
 
 use std::ffi::c_void;
+mod domain;
+pub use domain::{MockActor, MockCommandOutput, MockCommandValue, MockPlayer, MockPlayerState};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::thread::ThreadId;
@@ -41,7 +43,9 @@ pub struct PanicRecord {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum MockModState {
     Loaded,
+    Enabling,
     Enabled,
+    Disabling,
     Disabled,
     Unloaded,
 }
@@ -196,8 +200,23 @@ extern "C" fn should_log(_ctx: ModContextHandle, _level: LogLevel) -> FfiBool {
     FfiBool::TRUE
 }
 
-extern "C" fn query_interface(_id: FfiStr<'_>, _min_minor: u16) -> *const c_void {
-    std::ptr::null()
+extern "C" fn query_interface(id: FfiStr<'_>, min_minor: u16) -> *const c_void {
+    match lossy(id).as_str() {
+        "ferrum.block.v1" if min_minor == 0 => {
+            (&domain::BLOCK as *const ferrum_abi::BlockApiV1).cast()
+        }
+        "ferrum.actor.v1" if min_minor == 0 => {
+            (&domain::ACTOR as *const ferrum_abi::ActorApiV1).cast()
+        }
+        "ferrum.mob.v1" if min_minor == 0 => (&domain::MOB as *const ferrum_abi::MobApiV1).cast(),
+        "ferrum.player.v1" if min_minor == 0 => {
+            (&domain::PLAYER as *const ferrum_abi::PlayerApiV1).cast()
+        }
+        "ferrum.command.v1" if min_minor == 0 => {
+            (&domain::COMMAND as *const ferrum_abi::CommandApiV1).cast()
+        }
+        _ => std::ptr::null(),
+    }
 }
 
 static CORE_V1: CoreApiV1 = CoreApiV1 {
@@ -281,6 +300,7 @@ impl MockHost {
         w.main_thread = Some(std::thread::current().id());
         w.mods.clear();
         drop(w);
+        domain::reset();
         Self { _exclusive: guard }
     }
 
@@ -349,10 +369,12 @@ impl MockHost {
     /// 调用 `on_enable`；失败时模组保持 `Disabled`。
     pub fn enable(&self, m: &MockMod) -> Result<(), Error> {
         let descriptor = self.descriptor(m)?;
+        self.set_state(m, MockModState::Enabling);
         if let Some(f) = descriptor.on_enable {
             let status = f(m.ctx, RawMainThreadToken::ASSERTED);
             if !status.is_ok() {
                 self.set_state(m, MockModState::Disabled);
+                domain::revoke(m.ctx);
                 return Err(take_error(status));
             }
         }
@@ -362,20 +384,36 @@ impl MockHost {
 
     /// 调用 `on_disable`；无论结果如何模组都进入 `Disabled`。
     pub fn disable(&self, m: &MockMod) -> Result<(), Error> {
+        self.set_state(m, MockModState::Disabling);
+        if domain::defer_disable(m.ctx) {
+            return Ok(());
+        }
+        self.finish_disable(m)
+    }
+
+    fn finish_disable(&self, m: &MockMod) -> Result<(), Error> {
         let descriptor = self.descriptor(m)?;
         let status = descriptor
             .on_disable
             .map_or(FerrumStatus::OK, |f| f(m.ctx, RawMainThreadToken::ASSERTED));
         self.set_state(m, MockModState::Disabled);
+        domain::revoke(m.ctx);
         check(status)
     }
 
     /// 若已启用先停用，再调用 `on_unload`；之后句柄失效。
     pub fn unload(&self, m: &MockMod) -> Result<(), Error> {
+        if domain::active(m.ctx) {
+            return Err(Error::new(
+                FerrumStatus::REENTRANT_CALL,
+                "不能在命令回调内同步卸载自身",
+            ));
+        }
         if self.state(m) == Some(MockModState::Enabled) {
             self.disable(m)?;
         }
         let descriptor = self.descriptor(m)?;
+        domain::revoke(m.ctx);
         let status = descriptor.on_unload.map_or(FerrumStatus::OK, |f| f(m.ctx));
         self.set_state(m, MockModState::Unloaded);
         check(status)

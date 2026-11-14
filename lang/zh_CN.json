@@ -1,5 +1,7 @@
 {
     "mod.loaded": "模组已加载",
+    "command.failed": "Ferrum 命令执行失败（状态码 {}）",
+    "command.wrong_thread": "Ferrum 命令只能在服务端主线程执行",
     "mod.enabled": "模组已启用",
     "mod.unloaded": "模组已卸载",
     "mod.disabled": "Ferrum 加载器已停用",

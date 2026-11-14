@@ -211,9 +211,26 @@ extern "C" fn log_should_log(ctx: ModContextHandle, level: LogLevel) -> FfiBool 
 // 根表
 // ---------------------------------------------------------------------------
 
-extern "C" fn query_interface(_id: FfiStr<'_>, _min_minor: u16) -> *const std::ffi::c_void {
-    // v1.0 尚未提供扩展接口。
-    std::ptr::null()
+extern "C" fn query_interface(id: FfiStr<'_>, min_minor: u16) -> *const std::ffi::c_void {
+    // SAFETY: ABI 保证 id 为本次同步调用内的有效借用视图。
+    match unsafe { id.as_bytes() } {
+        b"ferrum.actor.v1" if min_minor == 0 => {
+            (&crate::actor::ACTOR_V1 as *const ferrum_abi::ActorApiV1).cast()
+        }
+        b"ferrum.mob.v1" if min_minor == 0 => {
+            (&crate::mob::MOB_V1 as *const ferrum_abi::MobApiV1).cast()
+        }
+        b"ferrum.block.v1" if min_minor == 0 => {
+            (&crate::block::BLOCK_V1 as *const ferrum_abi::BlockApiV1).cast()
+        }
+        b"ferrum.player.v1" if min_minor == 0 => {
+            (&crate::player::PLAYER_V1 as *const ferrum_abi::PlayerApiV1).cast()
+        }
+        b"ferrum.command.v1" if min_minor == 0 => {
+            (&crate::command::COMMAND_V1 as *const ferrum_abi::CommandApiV1).cast()
+        }
+        _ => std::ptr::null(),
+    }
 }
 
 pub static CORE_V1: CoreApiV1 = CoreApiV1 {

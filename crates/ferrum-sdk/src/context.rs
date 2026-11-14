@@ -54,6 +54,11 @@ impl ModContext {
         Logger::new(self.handle)
     }
 
+    /// 命令 Builder；实际注册必须在 on_enable 或主线程回调中持令牌执行。
+    pub fn commands(&self) -> crate::command::Commands {
+        crate::command::Commands { ctx: self.handle }
+    }
+
     /// `manifest.json` 中的 `name`。
     pub fn name(&self) -> Result<String> {
         host::read_string(|w| (host::core().get_mod_name)(self.handle, w))

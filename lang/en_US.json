@@ -1,5 +1,7 @@
 {
     "mod.loaded": "Mod loaded",
+    "command.failed": "Ferrum command failed (status {})",
+    "command.wrong_thread": "Ferrum commands must run on the server thread",
     "mod.enabled": "Mod enabled",
     "mod.unloaded": "Mod unloaded",
     "mod.disabled": "Ferrum loader disabled",

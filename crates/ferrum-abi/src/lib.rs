@@ -9,16 +9,24 @@
 
 #![no_std]
 
+mod actor;
+mod block;
+mod command;
 mod ffi;
 mod handle;
 mod host_api;
 mod module;
+mod player;
 mod status;
 mod version;
 
+pub use actor::*;
+pub use block::*;
+pub use command::*;
 pub use ffi::*;
 pub use handle::*;
 pub use host_api::*;
 pub use module::*;
+pub use player::*;
 pub use status::*;
 pub use version::*;

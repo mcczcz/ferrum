@@ -6,6 +6,7 @@
 use std::ffi::c_void;
 use std::sync::OnceLock;
 
+use ferrum_abi::{ActorRuntimeId, CommandDefinitionV1, CommandHandle, FfiByteWriter};
 use ferrum_abi::{FfiBool, FfiStr, LogLevel};
 
 /// `cpp-shim` 为每个 `FerrumMod` 提供的不透明 cookie（指向 C++ 侧对象）。
@@ -36,6 +37,25 @@ pub struct FerrumShimApi {
     pub request_disable: extern "C" fn(cookie: ShimModCookie),
     /// 宿主不再使用该 cookie（最后一个 `Arc<ModEntry>` 释放时调用，任意线程）。
     pub release_cookie: extern "C" fn(cookie: ShimModCookie),
+    pub player_v1: ferrum_abi::PlayerApiV1,
+    pub command_register: extern "C" fn(
+        ShimModCookie,
+        CommandHandle,
+        *const CommandDefinitionV1<'_>,
+    ) -> ferrum_abi::FerrumStatus,
+    pub command_unregister: extern "C" fn(ShimModCookie, CommandHandle) -> ferrum_abi::FerrumStatus,
+    pub command_origin: extern "C" fn(u64, *mut ActorRuntimeId) -> ferrum_abi::FerrumStatus,
+    pub command_int: extern "C" fn(u64, FfiStr<'_>, *mut i32) -> ferrum_abi::FerrumStatus,
+    pub command_float: extern "C" fn(u64, FfiStr<'_>, *mut f32) -> ferrum_abi::FerrumStatus,
+    pub command_bool: extern "C" fn(u64, FfiStr<'_>, *mut FfiBool) -> ferrum_abi::FerrumStatus,
+    pub command_string:
+        extern "C" fn(u64, FfiStr<'_>, *mut FfiByteWriter) -> ferrum_abi::FerrumStatus,
+    pub command_players:
+        extern "C" fn(u64, FfiStr<'_>, *mut FfiByteWriter) -> ferrum_abi::FerrumStatus,
+    pub command_output: extern "C" fn(u64, FfiBool, FfiStr<'_>) -> ferrum_abi::FerrumStatus,
+    pub block_v1: ferrum_abi::BlockApiV1,
+    pub actor_v1: ferrum_abi::ActorApiV1,
+    pub mob_v1: ferrum_abi::MobApiV1,
 }
 
 /// `cpp-shim` 调用 `ferrum_host_load_mod` 时提供的模组信息（所有字符串为 UTF-8，仅本次调用内有效）。

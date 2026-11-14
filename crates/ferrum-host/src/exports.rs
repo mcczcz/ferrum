@@ -52,10 +52,26 @@ pub extern "C" fn ferrum_host_abi_version() -> AbiVersion {
     AbiVersion::CURRENT
 }
 
+/// shim 将 C++ 异常详情写入同一线程的错误槽。
+#[unsafe(no_mangle)]
+pub extern "C" fn ferrum_host_set_last_error(message: ferrum_abi::FfiStr<'_>) -> FerrumStatus {
+    guard(|| {
+        // SAFETY: shim 保证 message 在本次同步调用内有效。
+        last_error::set(String::from_utf8_lossy(unsafe { message.as_bytes() }));
+        FerrumStatus::OK
+    })
+}
+
 /// 由 shim 在服务端主线程上调用，记录主线程 ID。
 #[unsafe(no_mangle)]
 pub extern "C" fn ferrum_host_mark_main_thread() {
     vtable::mark_main_thread();
+}
+
+/// shim 在派发前确认当前线程，不会修改已记录的主线程。
+#[unsafe(no_mangle)]
+pub extern "C" fn ferrum_host_is_main_thread() -> ferrum_abi::FfiBool {
+    vtable::is_main_thread().into()
 }
 
 /// 加载一个 `type = "ferrum"` 模组并执行其 `on_load`。成功时写出上下文句柄。

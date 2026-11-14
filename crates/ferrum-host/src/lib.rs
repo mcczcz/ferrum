@@ -7,11 +7,16 @@
 //!
 //! 锁序铁律：调用任何模组函数指针之前必须先释放本 crate 的内部锁。
 
+pub mod actor;
 pub mod arena;
+pub mod block;
 pub mod breaker;
+pub mod command;
 pub mod exports;
 pub mod last_error;
 pub mod loader;
+pub mod mob;
+pub mod player;
 pub mod runtime;
 pub mod shim;
 pub mod vtable;

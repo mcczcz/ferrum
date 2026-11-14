@@ -31,7 +31,20 @@ pub fn run(check: bool) -> Result<bool, String> {
                 "ShimModInfo".to_owned(),
                 "ModEntryFnV1".to_owned(),
                 "FerrumModDescriptor".to_owned(),
+                "PlayerApiV1".to_owned(),
+                "ActorApiV1".to_owned(),
+                "MobApiV1".to_owned(),
+                "BlockApiV1".to_owned(),
+                "CommandApiV1".to_owned(),
             ],
+            rename: [
+                ("Vec3".to_owned(), "FerrumVec3".to_owned()),
+                ("BlockPos".to_owned(), "FerrumBlockPos".to_owned()),
+                ("DimensionId".to_owned(), "FerrumDimensionId".to_owned()),
+                ("GameMode".to_owned(), "FerrumGameMode".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
             ..Default::default()
         },
         enumeration: EnumConfig {
