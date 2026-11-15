@@ -232,6 +232,13 @@ extern "C" fn query_interface(id: FfiStr<'_>, min_minor: u16) -> *const std::ffi
         b"ferrum.event.v1" if min_minor == 0 => {
             (&crate::event::EVENT_V1 as *const ferrum_abi::EventApiV1).cast()
         }
+        b"ferrum.custom_event.v1" if min_minor == 0 => {
+            (crate::custom_event::api() as *const ferrum_abi::CustomEventApiV1).cast()
+        }
+        b"ferrum.custom_event_publisher.v1" if min_minor == 0 => {
+            (crate::custom_event::publisher_api() as *const ferrum_abi::CustomEventPublisherApiV1)
+                .cast()
+        }
         _ => std::ptr::null(),
     }
 }

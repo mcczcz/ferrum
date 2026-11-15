@@ -35,6 +35,8 @@
 - [事件、命令、表单与异步调度指南（规划）](./02-mod-developer-guide/core-apis-guide.md)：M2–M4 核心领域子系统设计与目标用法。
 
 ### 03. 维护者作业手册 (`03-maintainer-playbook/`)
+
+第三方 native 模组集成见 [通用事件协议](./02-mod-developer-guide/native-events.md)：C ABI 注册和同步发布、Rust 订阅、字段与生命周期约定。
 面向 Ferrum 引擎维护者与贡献者：
 - [源码联编与调试指南](./03-maintainer-playbook/build-from-source.md)：Cargo + xmake 混合构建管线、cbindgen / 布局锁生成物校验、联合断点调试。
 - [MC / LeviLamina 跨版本升级 SOP](./03-maintainer-playbook/mc-version-bump-sop.md)：游戏更新时的零下游破坏适配步骤与回归检查单。

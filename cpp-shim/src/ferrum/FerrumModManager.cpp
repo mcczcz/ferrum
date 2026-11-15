@@ -1,5 +1,6 @@
 #include "ferrum/FerrumModManager.h"
 #include "ferrum/DomainApi.h"
+#include "ferrum/NativeEvents.h"
 
 #include "mod/Entry.h"
 
@@ -139,7 +140,11 @@ static FerrumShimApi const shimApi{
 ll::Expected<> initHost() {
     auto api = shimApi;
     installDomainApi(api);
+    installCustomEventBridge(api);
     if (auto status = ferrum_host_init(&api); status != FerrumStatus_OK) {
+        return hostError(status);
+    }
+    if (auto status = installNativeEvents(); status != FerrumStatus_OK) {
         return hostError(status);
     }
     return {};

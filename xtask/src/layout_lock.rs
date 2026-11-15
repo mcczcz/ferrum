@@ -106,6 +106,72 @@ fn assertions() -> Vec<String> {
     );
     lock!(out, CommandHandle);
     lock!(out, ListenerHandle);
+    lock!(out, EventProviderHandle);
+    lock!(
+        out,
+        CustomEventPublisherApiV1,
+        struct_size,
+        register_event,
+        unregister_event,
+        publish
+    );
+    lock!(
+        out,
+        CustomEventViewApiV1,
+        struct_size,
+        name,
+        get_i64,
+        get_u64,
+        get_f64,
+        get_bool,
+        get_string,
+        get_bytes,
+        get_uuid,
+        is_cancelled,
+        cancel,
+        is_active
+    );
+    lock!(out, CustomListenerHandle);
+    lock!(out, CustomEventHandle);
+    lock!(out, EventValueKind);
+    lock!(out, EventFieldV1, name, kind, reserved);
+    lock!(out, EventValueV1, name, kind, reserved, scalar, bytes);
+    lock!(
+        out,
+        CustomEventDefinitionV1,
+        struct_size,
+        name,
+        cancellable,
+        fields
+    );
+    lock!(
+        out,
+        NativeEventApiV1,
+        struct_size,
+        open_provider,
+        close_provider,
+        register_event,
+        unregister_event,
+        publish,
+        take_last_error
+    );
+    lock!(
+        out,
+        CustomEventApiV1,
+        struct_size,
+        subscribe,
+        unsubscribe,
+        name,
+        get_i64,
+        get_u64,
+        get_f64,
+        get_bool,
+        get_string,
+        get_bytes,
+        get_uuid,
+        is_cancelled,
+        cancel
+    );
     lock!(out, EventScopeHandle);
     lock!(out, EventKind);
     lock!(out, EventPriority);

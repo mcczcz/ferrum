@@ -12,6 +12,8 @@ use std::sync::{Arc, Mutex};
 pub struct ModOwnership {
     pub commands: Vec<CommandHandle>,
     pub listeners: Vec<ListenerHandle>,
+    pub custom_listeners: usize,
+    pub custom_providers: usize,
     pub active_invocations: usize,
     pub pending_disable: bool,
 }

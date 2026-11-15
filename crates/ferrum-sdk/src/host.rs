@@ -147,6 +147,29 @@ domain_api!(PlayerApi, player_api, PlayerApiV1, "ferrum.player.v1",
     set_game_mode: extern "C" fn(ActorRuntimeId, GameMode) -> FerrumStatus;
 });
 
+domain_api!(CustomEventPublisherApi, custom_event_publisher_api, CustomEventPublisherApiV1, "ferrum.custom_event_publisher.v1",
+    "宿主未提供通用事件发布端", "通用事件发布端子表不完整", {
+    register_event: extern "C" fn(ModContextHandle, *const ferrum_abi::CustomEventDefinitionV1<'_>, *mut ferrum_abi::CustomEventHandle) -> FerrumStatus;
+    unregister_event: extern "C" fn(ModContextHandle, ferrum_abi::CustomEventHandle) -> FerrumStatus;
+    publish: extern "C" fn(ModContextHandle, ferrum_abi::CustomEventHandle, ferrum_abi::FfiSlice<'_, ferrum_abi::EventValueV1<'_>>, *mut FfiBool) -> FerrumStatus;
+});
+
+domain_api!(CustomEventApi, custom_event_api, CustomEventApiV1, "ferrum.custom_event.v1",
+    "宿主未提供通用事件协议", "通用事件子表不完整", {
+    subscribe: extern "C" fn(ModContextHandle, FfiStr<'_>, ferrum_abi::EventPriority, ferrum_abi::EventCallbackV1, *mut ferrum_abi::CustomListenerHandle) -> FerrumStatus;
+    unsubscribe: extern "C" fn(ModContextHandle, ferrum_abi::CustomListenerHandle) -> FerrumStatus;
+    name: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, *mut FfiByteWriter) -> FerrumStatus;
+    get_i64: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, FfiStr<'_>, *mut i64) -> FerrumStatus;
+    get_u64: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, FfiStr<'_>, *mut u64) -> FerrumStatus;
+    get_f64: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, FfiStr<'_>, *mut f64) -> FerrumStatus;
+    get_bool: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, FfiStr<'_>, *mut FfiBool) -> FerrumStatus;
+    get_string: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, FfiStr<'_>, *mut FfiByteWriter) -> FerrumStatus;
+    get_bytes: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, FfiStr<'_>, *mut FfiByteWriter) -> FerrumStatus;
+    get_uuid: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, FfiStr<'_>, *mut PlayerUuid) -> FerrumStatus;
+    is_cancelled: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, *mut FfiBool) -> FerrumStatus;
+    cancel: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle) -> FerrumStatus;
+});
+
 domain_api!(EventApi, event_api, EventApiV1, "ferrum.event.v1",
     "宿主未提供事件 API", "事件 API 子表不完整", {
     subscribe: extern "C" fn(ModContextHandle, *const ferrum_abi::EventSubscriptionV1, ferrum_abi::EventCallbackV1, *mut ferrum_abi::ListenerHandle) -> FerrumStatus;

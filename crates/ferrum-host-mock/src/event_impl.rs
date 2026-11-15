@@ -1,4 +1,60 @@
 // 纳入 domain 模块，共享命令与事件的主线程资源和活跃回调计数。
+pub(super) fn install_custom_events() {
+    fn begin(ctx: ModContextHandle) -> FerrumStatus {
+        match with_mod(ctx, |m| m.state == MockModState::Enabled) {
+            Ok(true) => {
+                DOMAIN.with(|d| *d.borrow_mut().active.entry(ctx.0.to_raw()).or_default() += 1);
+                FerrumStatus::OK
+            }
+            Ok(false) => FerrumStatus::MOD_DISABLED,
+            Err(s) => s,
+        }
+    }
+    fn finish(ctx: ModContextHandle) {
+        let pending = DOMAIN.with(|d| {
+            let mut d = d.borrow_mut();
+            let count = d.active.entry(ctx.0.to_raw()).or_default();
+            *count -= 1;
+            let pending = *count == 0 && d.pending.contains(&ctx);
+            if pending {
+                d.pending.retain(|c| *c != ctx);
+            }
+            pending
+        });
+        if pending {
+            let _ = super::finish_disable_ctx(ctx);
+        }
+    }
+    super::custom_event_core::install(super::custom_event_core::Hooks {
+        main_thread: || is_main_thread().get(),
+        can_subscribe: |ctx| match enabled(ctx) {
+            Ok(()) => FerrumStatus::OK,
+            Err(s) => s,
+        },
+        begin,
+        finish,
+        track_listener: |_, _| {},
+        track_provider: |_, _| {},
+        publisher_name: |ctx| with_mod(ctx, |m| m.name.clone()),
+        enabled: |ctx| with_mod(ctx, |m| m.state == MockModState::Enabled) == Ok(true),
+        publish_ll: None,
+        attach: |_, _, _, _| FerrumStatus::OK,
+        detach: |_| {},
+        log: |ctx, level, text| {
+            super::log(ctx, level, FfiStr::new(text));
+        },
+        set_error: |text| super::LAST_ERROR.with(|s| *s.borrow_mut() = Some(text)),
+        take_error: || super::LAST_ERROR.with(|s| s.borrow_mut().take()),
+    });
+}
+
+impl MockHost {
+    /// 与原生模组相同的 C ABI 发布协议；mock 不查询真实 LL 模组身份或启用状态。
+    pub fn native_event_api(&self) -> &'static NativeEventApiV1 {
+        &super::custom_event_core::NATIVE_API
+    }
+}
+
 extern "C" fn subscribe_event(
     ctx: ModContextHandle,
     sub: *const EventSubscriptionV1,

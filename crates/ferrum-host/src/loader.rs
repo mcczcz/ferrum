@@ -236,6 +236,7 @@ pub fn enable(raw: u64) -> FerrumStatus {
             entry.set_state(ModState::Disabled);
             crate::command::revoke(ctx);
             crate::event::revoke(ctx);
+            crate::custom_event::revoke(ctx);
             return lifecycle_failed(&entry, "on_enable", status);
         }
     }
@@ -289,6 +290,7 @@ pub(crate) fn finish_disable(ctx: ModContextHandle, entry: &ModEntry) {
     // 3–4. 撤销路由，排空回调；析构不在 ownership 锁内执行。
     crate::command::revoke(ctx);
     crate::event::revoke(ctx);
+    crate::custom_event::revoke(ctx);
     entry
         .ownership
         .lock()
@@ -308,7 +310,10 @@ pub fn unload(raw: u64) -> FerrumStatus {
     };
     let has_resources = {
         let own = entry.ownership.lock().unwrap_or_else(|e| e.into_inner());
-        !own.commands.is_empty() || !own.listeners.is_empty()
+        !own.commands.is_empty()
+            || !own.listeners.is_empty()
+            || own.custom_listeners != 0
+            || own.custom_providers != 0
     };
     if !vtable::is_main_thread() && has_resources {
         return fail(FerrumStatus::WRONG_THREAD, "unload 必须在服务端主线程调用");
@@ -337,6 +342,7 @@ pub fn unload(raw: u64) -> FerrumStatus {
 
     crate::command::revoke(ctx);
     crate::event::revoke(ctx);
+    crate::custom_event::revoke(ctx);
     entry.set_state(ModState::Unloading);
     let status = match descriptor.on_unload {
         Some(on_unload) => on_unload(ctx),

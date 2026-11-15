@@ -77,6 +77,167 @@ typedef int32_t FerrumStatus;
 #define FerrumStatus_INTERNAL_ERROR 599
 
 /**
+ * UTF-8 只读借用字符串切片（不保证 `'\0'` 结尾）。
+ *
+ * 仅在本次同步调用返回前有效。宿主 → 模组方向**不保证**是合法 UTF-8。
+ */
+typedef struct FfiStr {
+  const uint8_t *ptr;
+  size_t len;
+} FfiStr;
+
+/**
+ * 64 位非零代数句柄：低 32 位为槽位下标，高 32 位为代数（恒非零）。
+ */
+typedef uint64_t GenerationalHandle;
+
+typedef GenerationalHandle EventProviderHandle;
+
+/**
+ * 跨 FFI 布尔值：`0` 为 false，任何非 `0` 值为 true。
+ */
+typedef uint8_t FfiBool;
+#define FfiBool_FALSE 0
+#define FfiBool_TRUE 1
+
+typedef uint32_t EventValueKind;
+#define EventValueKind_I64 0
+#define EventValueKind_U64 1
+#define EventValueKind_F64 2
+#define EventValueKind_BOOL 3
+#define EventValueKind_STRING 4
+#define EventValueKind_BYTES 5
+#define EventValueKind_UUID 6
+
+/**
+ * 冻结的字段描述；name 和 kind 在事件版本内不变。
+ */
+typedef struct EventFieldV1 {
+  struct FfiStr name;
+  EventValueKind kind;
+  uint32_t reserved;
+} EventFieldV1;
+
+/**
+ * 连续元素的只读借用切片（`T` 必须为 `#[repr(C)]` 且无未初始化填充字节）。
+ */
+typedef struct FfiSlice_EventFieldV1 {
+  const struct EventFieldV1 *ptr;
+  size_t len;
+} FfiSlice_EventFieldV1;
+
+typedef struct CustomEventDefinitionV1 {
+  uint32_t struct_size;
+  /**
+   * 完整名称必须以发布者模组名加点号开头，如 economy.balance_changing.v1。
+   */
+  struct FfiStr name;
+  FfiBool cancellable;
+  struct FfiSlice_EventFieldV1 fields;
+} CustomEventDefinitionV1;
+
+typedef GenerationalHandle CustomEventHandle;
+
+/**
+ * 连续元素的只读借用切片（`T` 必须为 `#[repr(C)]` 且无未初始化填充字节）。
+ */
+typedef struct FfiSlice_u8 {
+  const uint8_t *ptr;
+  size_t len;
+} FfiSlice_u8;
+
+/**
+ * 冻结的发布字段。I64 为二进制补码，F64 为 IEEE 754 位模式，BOOL 为零/非零。
+ * STRING/BYTES/UUID 使用 bytes（UUID 恰为 16 字节），其余使用 scalar。
+ * 所有借用数据在 publish 返回前有效；宿主在调用任何监听器前复制载荷。
+ */
+typedef struct EventValueV1 {
+  struct FfiStr name;
+  EventValueKind kind;
+  uint32_t reserved;
+  uint64_t scalar;
+  struct FfiSlice_u8 bytes;
+} EventValueV1;
+
+/**
+ * 连续元素的只读借用切片（`T` 必须为 `#[repr(C)]` 且无未初始化填充字节）。
+ */
+typedef struct FfiSlice_EventValueV1 {
+  const struct EventValueV1 *ptr;
+  size_t len;
+} FfiSlice_EventValueV1;
+
+/**
+ * 写入器回调：在调用方（通常是模组）堆上追加 `bytes`。
+ */
+typedef FerrumStatus (*FfiWriteFn)(void *context, const uint8_t *bytes, size_t len);
+
+/**
+ * 由调用方在栈上构造、传给被调用方用于输出变长数据的写入器。
+ *
+ * - 被调用方可多次调用 `write_fn`（追加语义）；
+ * - `write_fn` 返回非 `OK` 时，被调用方必须立即停止写入并原样返回该状态；
+ * - 被调用方不得在调用返回后保留本结构或其 `context`。
+ */
+typedef struct FfiByteWriter {
+  void *context;
+  FfiWriteFn write_fn;
+} FfiByteWriter;
+
+/**
+ * 原生发布端协议。注册及发布均要求主线程；函数表由 loader 导出入口取得。
+ * 关闭发布者立即撤销其全部事件；再次启用需重新注册。宿主不保存原生函数指针。
+ */
+typedef struct NativeEventApiV1 {
+  uint32_t struct_size;
+  FerrumStatus (*open_provider)(struct FfiStr, EventProviderHandle*);
+  FerrumStatus (*close_provider)(EventProviderHandle);
+  FerrumStatus (*register_event)(EventProviderHandle,
+                                 const struct CustomEventDefinitionV1*,
+                                 CustomEventHandle*);
+  FerrumStatus (*unregister_event)(EventProviderHandle, CustomEventHandle);
+  /**
+   * OK 时完整写出取消结果；回调错误被隔离。发布者被重入撤销时返回 MOD_DISABLED。
+   */
+  FerrumStatus (*publish)(EventProviderHandle,
+                          CustomEventHandle,
+                          struct FfiSlice_EventValueV1,
+                          FfiBool*);
+  FerrumStatus (*take_last_error)(struct FfiByteWriter*);
+} NativeEventApiV1;
+
+/**
+ * 仅在当前监听器的同步调用期间有效。
+ */
+typedef GenerationalHandle EventScopeHandle;
+
+/**
+ * 标准 UUID 网络字节序，布局永久冻结。
+ */
+typedef struct PlayerUuid {
+  uint8_t bytes[16];
+} PlayerUuid;
+
+/**
+ * shim 与原生 LL 监听器的作用域访问表；不包含游戏对象指针。
+ * 作用域只在同步 publish 期间有效，保存后再次访问返回 STALE_HANDLE。
+ */
+typedef struct CustomEventViewApiV1 {
+  uint32_t struct_size;
+  FerrumStatus (*name)(EventScopeHandle, struct FfiByteWriter*);
+  FerrumStatus (*get_i64)(EventScopeHandle, struct FfiStr, int64_t*);
+  FerrumStatus (*get_u64)(EventScopeHandle, struct FfiStr, uint64_t*);
+  FerrumStatus (*get_f64)(EventScopeHandle, struct FfiStr, double*);
+  FerrumStatus (*get_bool)(EventScopeHandle, struct FfiStr, FfiBool*);
+  FerrumStatus (*get_string)(EventScopeHandle, struct FfiStr, struct FfiByteWriter*);
+  FerrumStatus (*get_bytes)(EventScopeHandle, struct FfiStr, struct FfiByteWriter*);
+  FerrumStatus (*get_uuid)(EventScopeHandle, struct FfiStr, struct PlayerUuid*);
+  FerrumStatus (*is_cancelled)(EventScopeHandle, FfiBool*);
+  FerrumStatus (*cancel)(EventScopeHandle);
+  FerrumStatus (*is_active)(EventScopeHandle);
+} CustomEventViewApiV1;
+
+/**
  * `cpp-shim` 为每个 `FerrumMod` 提供的不透明 cookie（指向 C++ 侧对象）。
  *
  * 宿主只原样回传，绝不解引用；模组侧永远看不到它。
@@ -95,50 +256,9 @@ typedef uint32_t LogLevel;
 #define LogLevel_TRACE 5
 
 /**
- * UTF-8 只读借用字符串切片（不保证 `'\0'` 结尾）。
- *
- * 仅在本次同步调用返回前有效。宿主 → 模组方向**不保证**是合法 UTF-8。
- */
-typedef struct FfiStr {
-  const uint8_t *ptr;
-  size_t len;
-} FfiStr;
-
-/**
- * 跨 FFI 布尔值：`0` 为 false，任何非 `0` 值为 true。
- */
-typedef uint8_t FfiBool;
-#define FfiBool_FALSE 0
-#define FfiBool_TRUE 1
-
-/**
  * 当次会话内的实体标识；跨 Tick 保存请使用 ActorUniqueId 或 PlayerUuid。
  */
 typedef uint64_t ActorRuntimeId;
-
-/**
- * 标准 UUID 网络字节序，布局永久冻结。
- */
-typedef struct PlayerUuid {
-  uint8_t bytes[16];
-} PlayerUuid;
-
-/**
- * 写入器回调：在调用方（通常是模组）堆上追加 `bytes`。
- */
-typedef FerrumStatus (*FfiWriteFn)(void *context, const uint8_t *bytes, size_t len);
-
-/**
- * 由调用方在栈上构造、传给被调用方用于输出变长数据的写入器。
- *
- * - 被调用方可多次调用 `write_fn`（追加语义）；
- * - `write_fn` 返回非 `OK` 时，被调用方必须立即停止写入并原样返回该状态；
- * - 被调用方不得在调用返回后保留本结构或其 `context`。
- */
-typedef struct FfiByteWriter {
-  void *context;
-  FfiWriteFn write_fn;
-} FfiByteWriter;
 
 typedef struct FerrumVec3 {
   float x;
@@ -191,11 +311,6 @@ typedef struct PlayerApiV1 {
   FerrumStatus (*game_mode)(ActorRuntimeId, FerrumGameMode*);
   FerrumStatus (*set_game_mode)(ActorRuntimeId, FerrumGameMode);
 } PlayerApiV1;
-
-/**
- * 64 位非零代数句柄：低 32 位为槽位下标，高 32 位为代数（恒非零）。
- */
-typedef uint64_t GenerationalHandle;
 
 typedef GenerationalHandle CommandHandle;
 
@@ -318,6 +433,8 @@ typedef struct EventSubscriptionV1 {
   EventPriority priority;
 } EventSubscriptionV1;
 
+typedef GenerationalHandle CustomListenerHandle;
+
 /**
  * `cpp-shim` 在 `ferrum_host_init` 时注入的函数表。全部函数必须 `noexcept`。
  */
@@ -362,6 +479,12 @@ typedef struct FerrumShimApi {
   FerrumStatus (*event_is_cancelled)(uint64_t, FfiBool*);
   FerrumStatus (*event_cancel)(uint64_t);
   FerrumStatus (*event_chat_message)(uint64_t, struct FfiByteWriter*);
+  FerrumStatus (*custom_event_publish)(EventScopeHandle, FfiBool*);
+  FerrumStatus (*custom_event_subscribe)(ShimModCookie,
+                                         CustomListenerHandle,
+                                         struct FfiStr,
+                                         EventPriority);
+  FerrumStatus (*custom_event_unsubscribe)(CustomListenerHandle);
 } FerrumShimApi;
 
 typedef struct AbiVersion {
@@ -575,11 +698,6 @@ typedef struct CommandApiV1 {
 } CommandApiV1;
 
 /**
- * 仅在当前监听器的同步调用期间有效。
- */
-typedef GenerationalHandle EventScopeHandle;
-
-/**
  * 注册成功才接管 env；调用与析构都在主线程且不持有宿主锁。
  */
 typedef struct EventCallbackV1 {
@@ -604,6 +722,53 @@ typedef struct EventApiV1 {
   FerrumStatus (*chat_message)(ModContextHandle, EventScopeHandle, struct FfiByteWriter*);
 } EventApiV1;
 
+/**
+ * Rust 订阅端；按名称订阅允许早于原生发布者注册，发布者重载后继续接收同名事件。
+ */
+typedef struct CustomEventApiV1 {
+  uint32_t struct_size;
+  FerrumStatus (*subscribe)(ModContextHandle,
+                            struct FfiStr,
+                            EventPriority,
+                            struct EventCallbackV1,
+                            CustomListenerHandle*);
+  FerrumStatus (*unsubscribe)(ModContextHandle, CustomListenerHandle);
+  FerrumStatus (*name)(ModContextHandle, EventScopeHandle, struct FfiByteWriter*);
+  FerrumStatus (*get_i64)(ModContextHandle, EventScopeHandle, struct FfiStr, int64_t*);
+  FerrumStatus (*get_u64)(ModContextHandle, EventScopeHandle, struct FfiStr, uint64_t*);
+  FerrumStatus (*get_f64)(ModContextHandle, EventScopeHandle, struct FfiStr, double*);
+  FerrumStatus (*get_bool)(ModContextHandle, EventScopeHandle, struct FfiStr, FfiBool*);
+  FerrumStatus (*get_string)(ModContextHandle,
+                             EventScopeHandle,
+                             struct FfiStr,
+                             struct FfiByteWriter*);
+  FerrumStatus (*get_bytes)(ModContextHandle, EventScopeHandle, struct FfiStr, struct FfiByteWriter*);
+  FerrumStatus (*get_uuid)(ModContextHandle, EventScopeHandle, struct FfiStr, struct PlayerUuid*);
+  FerrumStatus (*is_cancelled)(ModContextHandle, EventScopeHandle, FfiBool*);
+  FerrumStatus (*cancel)(ModContextHandle, EventScopeHandle);
+} CustomEventApiV1;
+
+/**
+ * Rust 自定义事件发布端，独立查询 ferrum.custom_event_publisher.v1。
+ */
+typedef struct CustomEventPublisherApiV1 {
+  uint32_t struct_size;
+  /**
+   * 注册到当前 Rust 模组名下；启用失败、停用与卸载时自动撤销。
+   */
+  FerrumStatus (*register_event)(ModContextHandle,
+                                 const struct CustomEventDefinitionV1*,
+                                 CustomEventHandle*);
+  FerrumStatus (*unregister_event)(ModContextHandle, CustomEventHandle);
+  /**
+   * 同步派发，OK 时写出取消结果。仅已启用模组可以发布。
+   */
+  FerrumStatus (*publish)(ModContextHandle,
+                          CustomEventHandle,
+                          struct FfiSlice_EventValueV1,
+                          FfiBool*);
+} CustomEventPublisherApiV1;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -612,6 +777,15 @@ extern "C" {
  * cpp-shim 只传入自身栈帧的数字标识，游戏指针留在 C++ 内。
  */
 FerrumStatus ferrum_host_dispatch_command(uint64_t raw, uint64_t shim_scope);
+
+/**
+ * 仅供 shim 获取原生发布端的内部表；公开入口由 C++ shim 做原生模组身份与状态检查。
+ */
+const struct NativeEventApiV1 *ferrum_host_native_event_api(void);
+
+const struct CustomEventViewApiV1 *ferrum_host_custom_event_view_api(void);
+
+FerrumStatus ferrum_host_dispatch_custom_listener(uint64_t raw, EventScopeHandle scope);
 
 /**
  * shim 仅传递栈上事件的数字索引，C++ 对象指针不会进入 Rust。

@@ -13,6 +13,13 @@
 //! 因此同一进程内的 `MockHost` 互斥存在：[`MockHost::new`] 会等待前一个实例被 drop。
 
 use std::ffi::c_void;
+// mock 与宿主共用协议核心，避免字段校验、重入与取消语义出现两套实现。
+#[path = "../../ferrum-host/src/arena.rs"]
+#[allow(dead_code)]
+mod arena;
+#[path = "../../ferrum-host/src/custom_event_core.rs"]
+#[allow(dead_code)]
+mod custom_event_core;
 mod domain;
 pub use domain::{MockActor, MockCommandOutput, MockCommandValue, MockPlayer, MockPlayerState};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -218,6 +225,12 @@ extern "C" fn query_interface(id: FfiStr<'_>, min_minor: u16) -> *const c_void {
         "ferrum.event.v1" if min_minor == 0 => {
             (&domain::EVENT as *const ferrum_abi::EventApiV1).cast()
         }
+        "ferrum.custom_event.v1" if min_minor == 0 => {
+            (&custom_event_core::API as *const ferrum_abi::CustomEventApiV1).cast()
+        }
+        "ferrum.custom_event_publisher.v1" if min_minor == 0 => (&custom_event_core::PUBLISHER_API
+            as *const ferrum_abi::CustomEventPublisherApiV1)
+            .cast(),
         _ => std::ptr::null(),
     }
 }
@@ -303,6 +316,8 @@ impl MockHost {
         w.main_thread = Some(std::thread::current().id());
         w.mods.clear();
         drop(w);
+        domain::install_custom_events();
+        custom_event_core::reset();
         domain::reset();
         Self { _exclusive: guard }
     }
@@ -395,13 +410,7 @@ impl MockHost {
     }
 
     fn finish_disable(&self, m: &MockMod) -> Result<(), Error> {
-        let descriptor = self.descriptor(m)?;
-        let status = descriptor
-            .on_disable
-            .map_or(FerrumStatus::OK, |f| f(m.ctx, RawMainThreadToken::ASSERTED));
-        self.set_state(m, MockModState::Disabled);
-        domain::revoke(m.ctx);
-        check(status)
+        finish_disable_ctx(m.ctx)
     }
 
     /// 若已启用先停用，再调用 `on_unload`；之后句柄失效。
@@ -470,8 +479,19 @@ impl Drop for MockHost {
             // drop 中不允许 panic 外泄；卸载失败直接忽略。
             let _ = catch_unwind(AssertUnwindSafe(|| self.unload(m)));
         }
+        custom_event_core::reset();
         let mut w = world();
         w.mods.clear();
         w.main_thread = None;
     }
+}
+
+fn finish_disable_ctx(ctx: ModContextHandle) -> Result<(), Error> {
+    let descriptor = with_mod(ctx, |m| m.descriptor).map_err(|s| Error::new(s, "模组未加载"))?;
+    let status = descriptor
+        .on_disable
+        .map_or(FerrumStatus::OK, |f| f(ctx, RawMainThreadToken::ASSERTED));
+    let _ = with_mod(ctx, |m| m.state = MockModState::Disabled);
+    domain::revoke(ctx);
+    check(status)
 }

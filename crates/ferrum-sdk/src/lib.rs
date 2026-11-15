@@ -28,6 +28,7 @@ pub mod actor;
 pub mod block;
 pub mod command;
 mod context;
+pub mod custom_events;
 mod error;
 pub mod events;
 mod firewall;
@@ -49,6 +50,7 @@ pub use command::{
     CommandBuilder, CommandHandle, CommandInvocation, CommandParamKind, CommandPermission, Commands,
 };
 pub use context::{ModContext, ModDir};
+pub use custom_events::{CustomEventCtx, CustomEvents};
 pub use error::{Error, ErrorKind, Result};
 pub use events::{EventCtx, EventPriority, Events, ListenerHandle};
 pub use ferrum_macros::mod_entry;

@@ -3,6 +3,7 @@
 #include "Config/ConfigManager.h"
 #include "I18n/I18n.h"
 #include "ferrum/FerrumModManager.h"
+#include "ferrum/NativeEvents.h"
 #include "ferrum/ferrum_abi.h"
 
 #include "ll/api/mod/ModManagerRegistry.h"
@@ -74,6 +75,7 @@ bool Entry::enable() {
 
 bool Entry::disable() {
     getSelf().getLogger().debug("Disabling...");
+    closeNativeEvents();
     logger.info(tr("mod.disabled"));
     return true;
 }

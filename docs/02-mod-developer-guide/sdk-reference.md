@@ -6,6 +6,8 @@
 
 ## 玩家事件（开发版 ABI 1.1）
 
+跨语言自定义事件使用独立的 `ctx.custom_events()`，支持 Rust 注册、发布和订阅，native 可通过 LL EventBus 监听；见 [通用事件协议与 C++ 接入](./native-events.md)。
+
 事件通过 `ferrum.event.v1` 子表提供，SDK 入口为 `ctx.events()`。当前支持玩家加入初始化阶段 `PlayerJoinEvent`、断开连接前 `PlayerDisconnectEvent` 和聊天 `PlayerChatEvent`。
 
 在 `on_enable` 或已启用模组的主线程回调中注册：

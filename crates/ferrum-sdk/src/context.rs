@@ -64,6 +64,11 @@ impl ModContext {
         crate::events::Events { ctx: self.handle }
     }
 
+    /// 第三方原生模组的通用事件协议。
+    pub fn custom_events(&self) -> crate::custom_events::CustomEvents {
+        crate::custom_events::CustomEvents { ctx: self.handle }
+    }
+
     /// `manifest.json` 中的 `name`。
     pub fn name(&self) -> Result<String> {
         host::read_string(|w| (host::core().get_mod_name)(self.handle, w))

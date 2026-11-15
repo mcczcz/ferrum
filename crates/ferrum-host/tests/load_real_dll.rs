@@ -45,7 +45,7 @@ extern "C" fn command_unregister(_: ShimModCookie, _: CommandHandle) -> FerrumSt
     FerrumStatus::OK
 }
 macro_rules! unavailable {
-    ($name:ident($($arg:ty),*)) => {
+    ($name:ident($($arg:ty),* $(,)?)) => {
         extern "C" fn $name($(_: $arg),*) -> FerrumStatus { FerrumStatus::SERVICE_UNAVAILABLE }
     };
 }
@@ -74,6 +74,16 @@ unavailable!(event_unsubscribe(ShimModCookie, ListenerHandle));
 unavailable!(event_cancel(u64));
 unavailable!(event_cancelled(u64, *mut FfiBool));
 unavailable!(event_message(u64, *mut FfiByteWriter));
+unavailable!(custom_event_publish(ferrum_abi::EventScopeHandle, *mut FfiBool));
+unavailable!(
+    custom_event_subscribe(
+        ShimModCookie,
+        ferrum_abi::CustomListenerHandle,
+        FfiStr<'_>,
+        ferrum_abi::EventPriority,
+    )
+);
+unavailable!(custom_event_unsubscribe(ferrum_abi::CustomListenerHandle));
 unavailable!(actor_find(ActorUniqueId, *mut ActorRuntimeId));
 unavailable!(actor_unique(ActorRuntimeId, *mut ActorUniqueId));
 unavailable!(actor_kind(ActorRuntimeId, *mut ActorKind));
@@ -119,6 +129,9 @@ fn load_enable_disable_unload_reload() {
         event_is_cancelled: event_cancelled,
         event_cancel,
         event_chat_message: event_message,
+        custom_event_publish,
+        custom_event_subscribe,
+        custom_event_unsubscribe,
         actor_v1: ActorApiV1 {
             struct_size: size_of::<ActorApiV1>() as u32,
             find_by_unique_id: actor_find,

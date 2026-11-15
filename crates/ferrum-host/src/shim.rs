@@ -67,6 +67,16 @@ pub struct FerrumShimApi {
     pub event_is_cancelled: extern "C" fn(u64, *mut FfiBool) -> ferrum_abi::FerrumStatus,
     pub event_cancel: extern "C" fn(u64) -> ferrum_abi::FerrumStatus,
     pub event_chat_message: extern "C" fn(u64, *mut FfiByteWriter) -> ferrum_abi::FerrumStatus,
+    pub custom_event_publish:
+        extern "C" fn(ferrum_abi::EventScopeHandle, *mut FfiBool) -> ferrum_abi::FerrumStatus,
+    pub custom_event_subscribe: extern "C" fn(
+        ShimModCookie,
+        ferrum_abi::CustomListenerHandle,
+        FfiStr<'_>,
+        ferrum_abi::EventPriority,
+    ) -> ferrum_abi::FerrumStatus,
+    pub custom_event_unsubscribe:
+        extern "C" fn(ferrum_abi::CustomListenerHandle) -> ferrum_abi::FerrumStatus,
 }
 
 /// `cpp-shim` 调用 `ferrum_host_load_mod` 时提供的模组信息（所有字符串为 UTF-8，仅本次调用内有效）。

@@ -777,6 +777,7 @@ pub(super) static COMMAND: CommandApiV1 = CommandApiV1 {
 };
 
 pub(super) fn revoke(ctx: ModContextHandle) {
+    super::custom_event_core::revoke(ctx);
     let removed = DOMAIN.with(|d| {
         let mut d = d.borrow_mut();
         let keys = d

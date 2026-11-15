@@ -12,6 +12,8 @@ pub mod arena;
 pub mod block;
 pub mod breaker;
 pub mod command;
+pub mod custom_event;
+mod custom_event_core;
 pub mod event;
 pub mod exports;
 pub mod last_error;

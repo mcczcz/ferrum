@@ -25,7 +25,7 @@ pub enum EventPriority {
 }
 
 impl EventPriority {
-    fn to_abi(self) -> ferrum_abi::EventPriority {
+    pub(crate) fn to_abi(self) -> ferrum_abi::EventPriority {
         use ferrum_abi::EventPriority as P;
         match self {
             Self::Highest => P::HIGHEST,

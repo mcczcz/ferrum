@@ -12,6 +12,7 @@
 mod actor;
 mod block;
 mod command;
+mod custom_event;
 mod event;
 mod ffi;
 mod handle;
@@ -24,6 +25,7 @@ mod version;
 pub use actor::*;
 pub use block::*;
 pub use command::*;
+pub use custom_event::*;
 pub use event::*;
 pub use ffi::*;
 pub use handle::*;

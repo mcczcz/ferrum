@@ -37,6 +37,10 @@ pub fn run(check: bool) -> Result<bool, String> {
                 "BlockApiV1".to_owned(),
                 "CommandApiV1".to_owned(),
                 "EventApiV1".to_owned(),
+                "NativeEventApiV1".to_owned(),
+                "CustomEventApiV1".to_owned(),
+                "CustomEventPublisherApiV1".to_owned(),
+                "CustomEventViewApiV1".to_owned(),
             ],
             rename: [
                 ("Vec3".to_owned(), "FerrumVec3".to_owned()),
