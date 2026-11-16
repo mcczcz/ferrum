@@ -13,7 +13,7 @@ use crate::arena::Arena;
 use crate::breaker::CircuitBreaker;
 use crate::shim::ShimModCookie;
 
-/// 模组状态机，见 `docs/01-specs/threading-and-safety.md` §4.2。
+/// 模组状态机，见 `docs/design/threading.md`。
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum ModState {

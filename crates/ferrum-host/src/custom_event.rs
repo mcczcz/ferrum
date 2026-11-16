@@ -1,6 +1,6 @@
 //! 自定义事件与宿主模组生命周期的连接。
 use crate::{
-    custom_event_core as core, last_error,
+    custom_event_core as core, last_error, loader,
     runtime::{self, ModState},
     shim, vtable,
 };
@@ -14,29 +14,14 @@ fn can_subscribe(ctx: ModContextHandle) -> FerrumStatus {
     }
 }
 fn begin(ctx: ModContextHandle) -> FerrumStatus {
-    match runtime::lookup(ctx) {
-        Ok(e) if e.state() == ModState::Enabled => {
-            e.ownership
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .active_invocations += 1;
-            FerrumStatus::OK
-        }
-        Ok(_) => FerrumStatus::MOD_DISABLED,
+    match runtime::lookup(ctx).and_then(|e| loader::enter(&e)) {
+        Ok(()) => FerrumStatus::OK,
         Err(s) => s,
     }
 }
 fn finish(ctx: ModContextHandle) {
-    let Ok(entry) = runtime::lookup(ctx) else {
-        return;
-    };
-    let pending = {
-        let mut own = entry.ownership.lock().unwrap_or_else(|e| e.into_inner());
-        own.active_invocations -= 1;
-        own.pending_disable && own.active_invocations == 0
-    };
-    if pending {
-        crate::loader::finish_disable(ctx, &entry);
+    if let Ok(entry) = runtime::lookup(ctx) {
+        loader::leave(ctx, &entry);
     }
 }
 fn log(ctx: ModContextHandle, level: LogLevel, text: &str) {

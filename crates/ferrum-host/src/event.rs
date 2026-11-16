@@ -1,6 +1,7 @@
 use crate::{
     arena::Arena,
     last_error,
+    loader::Invocation,
     runtime::{self, ModState},
     shim, vtable,
 };
@@ -267,14 +268,13 @@ pub extern "C" fn ferrum_host_dispatch_event(raw: u64, shim_scope: u64) -> Ferru
             Ok(e) => e,
             Err(s) => return s,
         };
-        if entry.state() != ModState::Enabled {
-            return FerrumStatus::MOD_DISABLED;
-        }
-        entry
-            .ownership
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .active_invocations += 1;
+        let _invocation = match Invocation::begin(ctx, entry.clone()) {
+            Ok(g) => g,
+            Err(s) => return s,
+        };
+        // 在守卫之后重新绑定：局部变量逆序析构，panic 展开时也先释放监听器
+        // （可能执行 drop_fn），再结束活跃调用并处理推迟的停用。
+        let listener = listener;
         let scope = EventScopeHandle(SCOPES.lock().unwrap_or_else(|e| e.into_inner()).insert(
             Scope {
                 owner: ctx,
@@ -325,14 +325,6 @@ pub extern "C" fn ferrum_host_dispatch_event(raw: u64, shim_scope: u64) -> Ferru
             }
         }
         drop(listener);
-        let pending = {
-            let mut own = entry.ownership.lock().unwrap_or_else(|e| e.into_inner());
-            own.active_invocations -= 1;
-            own.pending_disable && own.active_invocations == 0
-        };
-        if pending {
-            crate::loader::finish_disable(ctx, &entry);
-        }
         status
     })
 }

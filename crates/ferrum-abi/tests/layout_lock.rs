@@ -1,5 +1,5 @@
 //! ABI 布局锁：由 `cargo xtask layout-lock` 追加生成，既有行严禁修改或删除。
-//! 见 docs/01-specs/abi-stability-spec.md §4。
+//! 见 docs/design/abi.md。
 
 #![allow(unused_imports)]
 

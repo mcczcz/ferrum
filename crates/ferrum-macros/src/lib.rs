@@ -63,7 +63,7 @@ fn parse_version(s: &LitStr) -> syn::Result<(u16, u16)> {
 /// 完成 ABI 握手，并为全部生命周期回调装上 `catch_unwind` 防火墙。
 ///
 /// 参数：
-/// - `hot_unload_safe`：声明模组可被 `FreeLibrary`（见线程规范 §4.4）；
+/// - `hot_unload_safe`：声明模组可被 `FreeLibrary`（见 `docs/design/threading.md`）；
 /// - `min_abi = "1.x"`：在加载阶段就要求宿主 ABI 至少为该版本。
 #[proc_macro_attribute]
 pub fn mod_entry(attr: TokenStream, item: TokenStream) -> TokenStream {

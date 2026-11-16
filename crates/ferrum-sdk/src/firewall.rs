@@ -1,4 +1,4 @@
-//! Panic 防火墙，见 `docs/01-specs/error-handling-spec.md` §1.2。
+//! Panic 防火墙，见 `docs/design/errors.md`。
 //!
 //! 所有进入模组代码的 `extern "C"` 跳板都经过 [`firewall`]：普通 Rust panic 被拦截、
 //! 上报给宿主并转为 `MOD_PANICKED`，绝不展开越过 FFI 边界。

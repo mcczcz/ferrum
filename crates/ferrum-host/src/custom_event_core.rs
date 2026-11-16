@@ -121,6 +121,26 @@ fn guard(f: impl FnOnce(&Hooks) -> FerrumStatus) -> FerrumStatus {
         }
     }
 }
+/// `begin` / `finish` 的 RAII 配对：宿主代码 panic 展开时同样调用 `finish`。
+struct Active<'h> {
+    hooks: &'h Hooks,
+    owner: ModContextHandle,
+}
+impl<'h> Active<'h> {
+    fn begin(hooks: &'h Hooks, owner: ModContextHandle) -> Result<Self, FerrumStatus> {
+        let status = (hooks.begin)(owner);
+        if status.is_ok() {
+            Ok(Self { hooks, owner })
+        } else {
+            Err(status)
+        }
+    }
+}
+impl Drop for Active<'_> {
+    fn drop(&mut self) {
+        (self.hooks.finish)(self.owner);
+    }
+}
 fn text(value: FfiStr<'_>) -> Result<String, FerrumStatus> {
     if value.ptr.is_null() && value.len != 0 {
         return Err(FerrumStatus::NULL_POINTER);
@@ -445,9 +465,12 @@ fn invoke_listener(hooks: &Hooks, handle: GenerationalHandle, payload: Rc<Payloa
     if listener.name != payload.name || !payload_active(&payload) {
         return;
     }
-    if !(hooks.begin)(listener.owner).is_ok() {
+    let Ok(active) = Active::begin(hooks, listener.owner) else {
         return;
-    }
+    };
+    // 在守卫之后重新绑定：局部变量逆序析构，panic 展开时也先释放监听器
+    // （可能执行 drop_fn），再结束活跃调用。
+    let listener = listener;
     let scope = REGISTRY.with(|r| {
         EventScopeHandle(r.borrow_mut().scopes.insert(Scope {
             owner: Some(listener.owner),
@@ -494,9 +517,9 @@ fn invoke_listener(hooks: &Hooks, handle: GenerationalHandle, payload: Rc<Payloa
         }
         drop(removed);
     }
-    let owner = listener.owner;
+    // 先释放监听器，再结束活跃调用（可能触发推迟的停用）。
     drop(listener);
-    (hooks.finish)(owner);
+    drop(active);
 }
 fn payload_active(payload: &Payload) -> bool {
     REGISTRY.with(|r| {
@@ -600,16 +623,15 @@ extern "C" fn rust_publish(
             Ok(p) => p,
             Err(s) => return s,
         };
-        let status = (hooks.begin)(owner);
-        if !status.is_ok() {
-            return status;
-        }
         // 计入发布者的活跃调用，native 监听间接停用/卸载 Rust 发布者时遵循延迟排空。
-        let mut status = publish(provider, event, values, out);
+        let _active = match Active::begin(hooks, owner) {
+            Ok(a) => a,
+            Err(s) => return s,
+        };
+        let status = publish(provider, event, values, out);
         if !(hooks.enabled)(owner) {
-            status = FerrumStatus::MOD_DISABLED;
+            return FerrumStatus::MOD_DISABLED;
         }
-        (hooks.finish)(owner);
         status
     })
 }

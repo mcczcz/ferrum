@@ -1,6 +1,6 @@
 //! 模组镜像加载、双向握手与生命周期转发。
 //!
-//! M1 只实现“保留镜像”卸载模式：镜像永不 `FreeLibrary`（见线程规范 §4.4–4.6）。
+//! M1 只实现“保留镜像”卸载模式：镜像永不 `FreeLibrary`（见 `docs/design/threading.md`）。
 
 use std::fs;
 use std::mem::MaybeUninit;
@@ -94,23 +94,27 @@ fn load_image(ctx: ModContextHandle, info: &ModInfo) -> Result<FerrumModDescript
     // 保留镜像：永不 FreeLibrary，函数指针在进程生命周期内始终有效。
     std::mem::forget(library);
 
+    // 全零缓冲区 + 预填容量：模组只写它与宿主都认识的前缀，未写的尾部字段保持零值。
+    let capacity = size_of::<FerrumModDescriptor>() as u32;
     let mut descriptor = MaybeUninit::<FerrumModDescriptor>::zeroed();
-    // SAFETY: host_api 为 'static；descriptor 指向可写的、足够大的栈内存。
+    // SAFETY: descriptor 为本栈帧内对齐、可写的内存，首字段为 u32。
+    unsafe { descriptor.as_mut_ptr().cast::<u32>().write(capacity) };
+    // SAFETY: host_api 为 'static；descriptor 指向 capacity 字节的可写栈内存。
     let status = unsafe { entry(vtable::host_api(), ctx, descriptor.as_mut_ptr()) };
     if !status.is_ok() {
         let detail = last_error::take().unwrap_or_default();
         return Err(fail(status, format!("模组入口返回 {status}: {detail}")));
     }
 
-    // SAFETY: 入口返回 OK 时 SDK 保证已完整写入描述符；前 4 字节 struct_size 必定已写入。
-    let struct_size = unsafe { (*descriptor.as_ptr()).struct_size };
-    if struct_size < FERRUM_MOD_DESCRIPTOR_MIN_SIZE_V1_0 {
+    // SAFETY: 首字段 struct_size 在调用前已初始化，模组只会覆盖为实际写入量。
+    let struct_size = unsafe { descriptor.as_ptr().cast::<u32>().read() };
+    if !(FERRUM_MOD_DESCRIPTOR_MIN_SIZE_V1_0..=capacity).contains(&struct_size) {
         return Err(fail(
             FerrumStatus::ABI_INCOMPATIBLE,
-            format!("模组描述符过小（struct_size = {struct_size}）"),
+            format!("模组描述符大小非法（struct_size = {struct_size}，宿主容量 {capacity}）"),
         ));
     }
-    // SAFETY: struct_size 覆盖 v1.0 全部字段，描述符已完整初始化。
+    // SAFETY: v1.0 字段已由模组写入；其余尾部字段为全零，ABI 规定追加字段必须以零值为合法默认。
     let descriptor = unsafe { descriptor.assume_init() };
 
     let host = AbiVersion::CURRENT;
@@ -278,6 +282,53 @@ pub fn disable(raw: u64) -> FerrumStatus {
     FerrumStatus::OK
 }
 
+/// 计入一次执行中的模组回调；模组未启用时返回 `MOD_DISABLED`。
+///
+/// 每次成功的 `enter` 必须配一次 [`leave`]；优先用 [`Invocation`] 守卫。
+pub(crate) fn enter(entry: &ModEntry) -> Result<(), FerrumStatus> {
+    if entry.state() != ModState::Enabled {
+        return Err(FerrumStatus::MOD_DISABLED);
+    }
+    entry
+        .ownership
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .active_invocations += 1;
+    Ok(())
+}
+
+/// 结束一次回调；最外层回调结束且停用被推迟时，在此完成停用。
+pub(crate) fn leave(ctx: ModContextHandle, entry: &ModEntry) {
+    let pending = {
+        let mut own = entry.ownership.lock().unwrap_or_else(|e| e.into_inner());
+        own.active_invocations -= 1;
+        own.pending_disable && own.active_invocations == 0
+    };
+    if pending {
+        finish_disable(ctx, entry);
+    }
+}
+
+/// [`enter`] / [`leave`] 的 RAII 守卫：宿主代码 panic 展开时计数同样会配平，
+/// 避免模组永久卡在 `Disabling`。
+pub(crate) struct Invocation {
+    ctx: ModContextHandle,
+    entry: Arc<ModEntry>,
+}
+
+impl Invocation {
+    pub(crate) fn begin(ctx: ModContextHandle, entry: Arc<ModEntry>) -> Result<Self, FerrumStatus> {
+        enter(&entry)?;
+        Ok(Self { ctx, entry })
+    }
+}
+
+impl Drop for Invocation {
+    fn drop(&mut self) {
+        leave(self.ctx, &self.entry);
+    }
+}
+
 pub(crate) fn finish_disable(ctx: ModContextHandle, entry: &ModEntry) {
     let Some(descriptor) = entry.descriptor().copied() else {
         return;
@@ -366,6 +417,69 @@ pub fn unload(raw: u64) -> FerrumStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    extern "C" fn noop_load(_: ModContextHandle) -> FerrumStatus {
+        FerrumStatus::OK
+    }
+
+    fn enabled_entry() -> Arc<ModEntry> {
+        let entry = Arc::new(ModEntry::new(ModInfo {
+            cookie: crate::shim::ShimModCookie(std::ptr::null_mut()),
+            name: "t".into(),
+            version: "0.0.0".into(),
+            entry_path: String::new(),
+            mod_dir: String::new(),
+            data_dir: String::new(),
+            config_dir: String::new(),
+            lang_dir: String::new(),
+        }));
+        entry.set_descriptor(FerrumModDescriptor {
+            struct_size: size_of::<FerrumModDescriptor>() as u32,
+            flags: FerrumModFlags::NONE,
+            required_abi_version: AbiVersion::CURRENT,
+            sdk_version: AbiVersion::CURRENT,
+            on_load: noop_load,
+            on_enable: None,
+            on_disable: None,
+            on_unload: None,
+        });
+        entry.set_state(ModState::Enabled);
+        entry
+    }
+
+    fn active(entry: &ModEntry) -> usize {
+        entry.ownership.lock().unwrap().active_invocations
+    }
+
+    #[test]
+    fn invocation_balances_on_panic_and_finishes_deferred_disable() {
+        let ctx = ModContextHandle(ferrum_abi::GenerationalHandle::new(0, 1).unwrap());
+        let entry = enabled_entry();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = Invocation::begin(ctx, entry.clone()).unwrap();
+            assert_eq!(active(&entry), 1);
+            // 回调中途请求停用：被推迟到最外层回调结束。
+            entry.set_state(ModState::Disabling);
+            entry.ownership.lock().unwrap().pending_disable = true;
+            panic!("host bug");
+        }));
+        assert!(result.is_err());
+        assert_eq!(active(&entry), 0);
+        assert!(!entry.ownership.lock().unwrap().pending_disable);
+        assert_eq!(entry.state(), ModState::Disabled);
+    }
+
+    #[test]
+    fn invocation_rejects_disabled_mod() {
+        let ctx = ModContextHandle(ferrum_abi::GenerationalHandle::new(0, 1).unwrap());
+        let entry = enabled_entry();
+        entry.set_state(ModState::Disabled);
+        assert_eq!(
+            Invocation::begin(ctx, entry.clone()).err(),
+            Some(FerrumStatus::MOD_DISABLED)
+        );
+        assert_eq!(active(&entry), 0);
+    }
 
     #[test]
     fn fnv_is_stable() {

@@ -1,4 +1,4 @@
-//! 代数槽位池（Generational Arena），见 `docs/01-specs/handle-and-id-design.md` §3.3。
+//! 代数槽位池（Generational Arena），见 `docs/design/handles.md`。
 
 use ferrum_abi::GenerationalHandle;
 

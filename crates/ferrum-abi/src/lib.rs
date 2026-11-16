@@ -4,7 +4,7 @@
 //! 由 `ferrum-host`（宿主）与 `ferrum-sdk`（模组）共同依赖，并通过 cbindgen 生成
 //! `cpp-shim/include/ferrum/ferrum_abi.h`。
 //!
-//! 修改本 crate 前必须阅读 `docs/01-specs/abi-stability-spec.md`：
+//! 修改本 crate 前必须阅读 `docs/design/abi.md`：
 //! 已发布字段只增不改、只尾追加，每次追加都要在 `tests/layout_lock.rs` 中追加断言。
 
 #![no_std]

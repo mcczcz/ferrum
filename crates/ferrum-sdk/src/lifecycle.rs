@@ -4,9 +4,9 @@ use std::sync::{Mutex, TryLockError};
 
 use ferrum_abi::{
     AbiVersion, CORE_API_MIN_SIZE_V1_0, FERRUM_ABI_MAGIC, FERRUM_ABI_MAJOR,
-    FERRUM_HOST_API_MIN_SIZE_V1_0, FerrumHostApi, FerrumModDescriptor, FerrumModFlags,
-    FerrumStatus, LOG_API_MIN_SIZE_V1_0, ModContextHandle, ModEntryFnV1, OnDisableFn, OnEnableFn,
-    OnLoadFn, OnUnloadFn, RawMainThreadToken,
+    FERRUM_HOST_API_MIN_SIZE_V1_0, FERRUM_MOD_DESCRIPTOR_MIN_SIZE_V1_0, FerrumHostApi,
+    FerrumModDescriptor, FerrumModFlags, FerrumStatus, LOG_API_MIN_SIZE_V1_0, ModContextHandle,
+    ModEntryFnV1, OnDisableFn, OnEnableFn, OnLoadFn, OnUnloadFn, RawMainThreadToken,
 };
 
 use crate::context::ModContext;
@@ -105,10 +105,22 @@ unsafe fn validate_host(host_api: *const FerrumHostApi) -> Option<&'static Ferru
     Some(api)
 }
 
+/// 按宿主预填的容量计算描述符写入字节数；容量比 v1.0 还小则不兼容。
+fn descriptor_len(prefill: u32) -> Option<u32> {
+    let capacity = match prefill {
+        // 旧宿主不预填（全零缓冲区），其容量恰为 v1.0 大小。
+        0 => FERRUM_MOD_DESCRIPTOR_MIN_SIZE_V1_0,
+        n if n < FERRUM_MOD_DESCRIPTOR_MIN_SIZE_V1_0 => return None,
+        n => n,
+    };
+    Some(capacity.min(size_of::<FerrumModDescriptor>() as u32))
+}
+
 /// `ferrum_mod_entry_v1` 的实现。
 ///
 /// # Safety
-/// 由宿主按 [`ModEntryFnV1`] 契约调用：`host_api` 为空或有效，`out_descriptor` 为空或可写。
+/// 由宿主按 [`ModEntryFnV1`] 契约调用：`host_api` 为空或有效；`out_descriptor` 为空，
+/// 或指向 `struct_size` 已预填为缓冲区容量（`0` 表示 v1.0 大小）的可写内存。
 pub unsafe fn entry(
     host_api: *const FerrumHostApi,
     _ctx: ModContextHandle,
@@ -130,8 +142,13 @@ pub unsafe fn entry(
             Some((major, minor)) => AbiVersion::new(major, minor, 0),
             None => AbiVersion::V1_0,
         };
+        // SAFETY: 已检查非空；宿主保证缓冲区至少有 v1.0 前缀，首字段 struct_size 可读。
+        let prefill = unsafe { out_descriptor.cast::<u32>().read() };
+        let Some(len) = descriptor_len(prefill) else {
+            return FerrumStatus::ABI_INCOMPATIBLE;
+        };
         let descriptor = FerrumModDescriptor {
-            struct_size: size_of::<FerrumModDescriptor>() as u32,
+            struct_size: len,
             flags: callbacks.flags,
             required_abi_version: required,
             sdk_version: crate::SDK_VERSION,
@@ -140,8 +157,15 @@ pub unsafe fn entry(
             on_disable: Some(callbacks.on_disable),
             on_unload: Some(callbacks.on_unload),
         };
-        // SAFETY: 已检查非空，宿主保证其指向可写的描述符内存。
-        unsafe { out_descriptor.write(descriptor) };
+        // SAFETY: 宿主保证 out_descriptor 至少有 capacity 字节可写，len <= capacity；
+        // len <= size_of 源结构，两块内存互不重叠。只写宿主认识的前缀，不越界。
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                (&raw const descriptor).cast::<u8>(),
+                out_descriptor.cast::<u8>(),
+                len as usize,
+            );
+        }
         FerrumStatus::OK
     });
     result.unwrap_or_else(|payload| {
@@ -228,4 +252,23 @@ pub fn on_unload<T: FerrumMod>(state: &'static ModState<T>, ctx: ModContextHandl
             None => Ok(()),
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn descriptor_len_respects_host_capacity() {
+        let full = size_of::<FerrumModDescriptor>() as u32;
+        let v1_0 = FERRUM_MOD_DESCRIPTOR_MIN_SIZE_V1_0;
+        // 旧宿主未预填：只写 v1.0 前缀。
+        assert_eq!(descriptor_len(0), Some(v1_0));
+        // 宿主容量小于 v1.0：不兼容。
+        assert_eq!(descriptor_len(v1_0 - 1), None);
+        // 宿主与 SDK 同版本。
+        assert_eq!(descriptor_len(full), Some(full));
+        // 更新的宿主：只写 SDK 认识的字段。
+        assert_eq!(descriptor_len(full + 64), Some(full));
+    }
 }

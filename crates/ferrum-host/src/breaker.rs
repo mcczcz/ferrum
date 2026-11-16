@@ -1,4 +1,4 @@
-//! 模组级 panic 熔断计数，见 `docs/01-specs/error-handling-spec.md` §4。
+//! 模组级 panic 熔断计数，见 `docs/design/errors.md`。
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};

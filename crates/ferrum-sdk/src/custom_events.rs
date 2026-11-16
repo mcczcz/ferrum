@@ -43,9 +43,10 @@ impl CustomEvents {
         let mut out = MaybeUninit::uninit();
         host::check(register(self.ctx, &definition, out.as_mut_ptr()))?;
         // SAFETY: register 返回 OK 保证写出完整句柄。
+        let handle = unsafe { out.assume_init() };
         Ok(RegisteredEvent {
             ctx: self.ctx,
-            handle: unsafe { out.assume_init() },
+            handle,
         })
     }
 

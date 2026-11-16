@@ -27,9 +27,9 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::thread::ThreadId;
 
 use ferrum_abi::{
-    AbiVersion, CoreApiV1, FERRUM_ABI_MAGIC, FerrumHostApi, FerrumModDescriptor, FerrumStatus,
-    FfiBool, FfiByteWriter, FfiStr, GenerationalHandle, LogApiV1, LogLevel, ModContextHandle,
-    ModDirKind, RawMainThreadToken,
+    AbiVersion, CoreApiV1, FERRUM_ABI_MAGIC, FERRUM_MOD_DESCRIPTOR_MIN_SIZE_V1_0, FerrumHostApi,
+    FerrumModDescriptor, FerrumStatus, FfiBool, FfiByteWriter, FfiStr, GenerationalHandle,
+    LogApiV1, LogLevel, ModContextHandle, ModDirKind, RawMainThreadToken,
 };
 use ferrum_sdk::{Error, Level, ModEntryPoint};
 
@@ -345,11 +345,23 @@ impl MockHost {
         let ctx =
             ModContextHandle(GenerationalHandle::new(index, 1).expect("generation 1 is non-zero"));
 
+        // 与真实宿主相同：全零缓冲区并预填容量。
+        let capacity = size_of::<FerrumModDescriptor>() as u32;
         let mut descriptor = std::mem::MaybeUninit::<FerrumModDescriptor>::zeroed();
-        // SAFETY: HOST_API 为 'static，descriptor 指向可写栈内存。
+        // SAFETY: descriptor 为本栈帧内对齐、可写的内存，首字段为 u32。
+        unsafe { descriptor.as_mut_ptr().cast::<u32>().write(capacity) };
+        // SAFETY: HOST_API 为 'static，descriptor 指向 capacity 字节的可写栈内存。
         let status = unsafe { T::ENTRY(&HOST_API.0, ctx, descriptor.as_mut_ptr()) };
         check(status)?;
-        // SAFETY: 入口返回 OK 即已完整写入描述符。
+        // SAFETY: 首字段已初始化，模组只会覆盖为实际写入量。
+        let written = unsafe { descriptor.as_ptr().cast::<u32>().read() };
+        if !(FERRUM_MOD_DESCRIPTOR_MIN_SIZE_V1_0..=capacity).contains(&written) {
+            return Err(Error::new(
+                FerrumStatus::ABI_INCOMPATIBLE,
+                format!("模组描述符大小非法（struct_size = {written}）"),
+            ));
+        }
+        // SAFETY: v1.0 字段已写入，其余尾部字段为合法的全零默认值。
         let descriptor = unsafe { descriptor.assume_init() };
         if !AbiVersion::CURRENT.satisfies(descriptor.required_abi_version) {
             return Err(Error::new(

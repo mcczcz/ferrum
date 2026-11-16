@@ -1,4 +1,4 @@
-//! 线程局部 `LastErrorSlot`，见 `docs/01-specs/error-handling-spec.md` §3。
+//! 线程局部 `LastErrorSlot`，见 `docs/design/errors.md`。
 
 use std::cell::RefCell;
 

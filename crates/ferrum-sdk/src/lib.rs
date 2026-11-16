@@ -20,9 +20,7 @@
 //! 模组必须编译为 `cdylib` 且保持 `panic = "unwind"`。
 
 #[cfg(panic = "abort")]
-compile_error!(
-    "Ferrum mods must be built with panic = \"unwind\"; see docs/01-specs/error-handling-spec.md"
-);
+compile_error!("Ferrum mods must be built with panic = \"unwind\"; see docs/design/errors.md");
 
 pub mod actor;
 pub mod block;
