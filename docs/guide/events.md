@@ -1,10 +1,69 @@
-# Rust 与原生模组通用事件协议
+# 事件
 
-开发版 ABI 继续使用 1.1。Rust 和原生模组都可以注册字段并发布事件。真实宿主统一通过 LL 的 `FerrumCustomEvent` 派发，Rust 通过 `ctx.custom_events()` 订阅，native 通过 LL EventBus 订阅公开 C++ 类型。已有其他 C++ 自定义事件不会自动转换，需要发布者或适配插件接入。
+两类事件：
 
-## Rust 订阅
+| 类型 | 入口 | 用途 |
+| :--- | :--- | :--- |
+| 玩家事件 | `ctx.events()` | 订阅加入、断开、聊天 |
+| 自定义事件 | `ctx.custom_events()` | Rust 与 native C++ 模组互相发布、订阅 |
 
-在 `on_enable` 中注册，允许早于原生事件注册；返回值为独立的 `CustomListenerHandle`，只能用 `custom_events().unsubscribe()` 注销：
+ABI 1.1。宿主没有对应子表时，调用返回 `Unsupported`。
+
+## 玩家事件
+
+| 事件 | 可取消 | 额外方法 |
+| :--- | :--- | :--- |
+| `PlayerJoinEvent`（初始化阶段） | 是 | |
+| `PlayerDisconnectEvent`（断开前） | 否 | |
+| `PlayerChatEvent` | 是 | `message() -> Result<String>`（只读） |
+
+所有事件有 `player() -> Result<PlayerRef>`。可取消事件有 `cancel()`、`is_cancelled()`。
+
+```rust
+use ferrum_sdk::events::{EventPriority, PlayerChatEvent, PlayerJoinEvent};
+
+ctx.events().subscribe::<PlayerJoinEvent>(token, EventPriority::Normal, |event, _token| {
+    let player = event.player()?;
+    player.send_message(format!("欢迎，{}！", player.real_name()?))?;
+    Ok(())
+})?;
+
+let listener = ctx.events().subscribe::<PlayerChatEvent>(token, EventPriority::High, |event, _token| {
+    if event.message()?.contains("禁止内容") {
+        event.cancel()?;
+    }
+    Ok(())
+})?;
+
+ctx.events().unsubscribe(token, listener)?; // 可选，提前移除
+```
+
+规则：
+
+- 在 `on_enable` 或已启用模组的主线程回调中订阅、退订。
+- 优先级 `Highest > High > Normal > Low > Lowest`。同优先级按监听器创建顺序。每个订阅对应一个 LL 监听器，与 native 模组的监听器一起排序。
+- `cancel()` 立即作用于 LL 原事件，并跳过后续监听器。
+- 取消加入事件只取消 LL 的初始化处理，不会拒绝登录或踢人。
+- 回调返回 `Err`：记录日志，不取消，不回滚已发生的修改。
+- 回调是 `FnMut + 'static`，可以捕获 `Rc`，不能借用 `&mut self`。`event`、`player`、`token` 不能带出回调。
+- `ListenerHandle` 丢弃不退订。手动退订、启用失败、停用、卸载时清理。回调内可退订自身，闭包在调用结束后析构。
+- 同一回调重入会被跳过并限频告警。回调 panic：监听器被摘除。
+
+## 自定义事件
+
+事件按名称标识，字段为键值。真实宿主用 LL 的 `FerrumCustomEvent` 派发：Rust 通过 SDK 订阅，native 通过 `EventBus` 监听。其他已有的 C++ 事件不会自动转换。
+
+### 命名与字段
+
+- 事件名以发布者模组名加点开头，例如 `economy.balance_changing.v1`。改字段类型、删字段、改含义时升版本号。
+- 事件名和字段名只允许 ASCII 字母、数字和 `. _ - :`。
+- 字段类型：`I64`、`U64`、`F64`、`Bool`、`String`（UTF-8）、`Bytes`、`Uuid`（16 字节）。
+- 字段只读。唯一的修改能力是取消。
+- 发布时必须给出全部已声明字段：不能缺、多、重复、类型错。顺序不限。
+
+### Rust 订阅
+
+可以早于发布者注册。返回的 `CustomListenerHandle` 只能用 `custom_events().unsubscribe()` 注销。
 
 ```rust
 use ferrum_sdk::events::EventPriority;
@@ -14,94 +73,91 @@ let listener = ctx.custom_events().subscribe(
     "economy.balance_changing.v1",
     EventPriority::High,
     |event, _token| {
-        let next = event.i64("new_balance")?;
-        if next < 0 {
+        if event.i64("new_balance")? < 0 {
             event.cancel()?;
         }
         Ok(())
     },
 )?;
-// 提前移除时：ctx.custom_events().unsubscribe(token, listener)?;
 ```
 
-字段访问：`i64`、`u64`、`f64`、`bool`、`string`、`bytes`、`uuid`，均接收字段名并返回 `Result<T>`。未知字段返回 `NotFound`，类型不符返回 `InvalidArgument`。`name()` 返回事件名，`is_cancelled()` 返回取消状态。变长输出属于 Rust 模组自己的堆。
+`CustomEventCtx` 方法：
 
-监听顺序为 Highest → High → Normal → Low → Lowest。每个 Rust 订阅对应一个 LL 监听器，因此与 native 监听按相同优先级交错执行；同优先级按 LL 监听器创建顺序。LL 派发使用监听快照，新增监听从下次派发生效；已失效的 Rust 监听句柄跳过。取消停止后续两端监听，但不回滚之前的副作用。
+| 方法 | 返回 |
+| :--- | :--- |
+| `i64` `u64` `f64` `bool` `string` `bytes` `uuid`（字段名） | `Result<T>`。字段不存在 `NotFound`，类型不符 `InvalidArgument` |
+| `name()` | 事件名 |
+| `is_cancelled()` | 是否已取消 |
+| `cancel()` | 不可取消的事件返回 `Unsupported` |
 
-回调 HRTB、主线程令牌、非 Send 闭包、自注销延迟析构、panic 摘除及自停用延迟排空，与内建事件相同。回调返回 Err 记录日志，不自动取消，不让 publish 失败。不可取消事件调用 cancel 返回 Unsupported。
+变长字段返回模组自己堆上的副本。
 
-## Rust 注册与发布
+派发顺序：Rust 和 native 监听器按优先级交错执行，同优先级按创建顺序。任一端 `cancel` 都会终止后续两端的监听器，已发生的副作用不回滚。回调语义（Err、panic、重入、自退订）同玩家事件。
 
-`CustomEvents::register` 在 on_enable 或已启用模组的主线程回调中调用。事件全名必须以当前 manifest 的模组名加点号开头，以下假设模组名为 `economy`：
+### Rust 注册与发布
+
+在 `on_enable` 或已启用模组的主线程回调中注册。
 
 ```rust
 use ferrum_sdk::custom_events::{EventFieldType, EventValue, RegisteredEvent};
 
-// 在 on_enable 中注册，可以把 RegisteredEvent 保存到模组字段中。
+// on_enable 中注册，句柄是 Copy，可存进模组字段
 let balance_changing: RegisteredEvent = ctx.custom_events().register(
     token,
     "economy.balance_changing.v1",
-    true,
-    &[
-        ("old_balance", EventFieldType::I64),
-        ("new_balance", EventFieldType::I64),
-    ],
+    true, // cancellable
+    &[("old_balance", EventFieldType::I64), ("new_balance", EventFieldType::I64)],
 )?;
 
-// 在后续命令/事件回调中发布，此时模组必须已 Enabled。
-// 可将 Copy 的句柄 move 进其他回调，不要在 on_enable 返回前立即发布。
+// 之后在命令或事件回调中发布（模组必须已 Enabled，不要在 on_enable 返回前发布）
 let cancelled = balance_changing.publish(
     token,
-    &[
-        ("old_balance", EventValue::I64(100)),
-        ("new_balance", EventValue::I64(-10)),
-    ],
+    &[("old_balance", EventValue::I64(100)), ("new_balance", EventValue::I64(-10))],
 )?;
 if !cancelled {
-    // 提交实际余额修改。
+    // 执行实际修改
 }
-
-// 若需提前撤销：balance_changing.unregister(token)?;
 ```
 
-EventFieldType 和 EventValue 均支持 I64/U64/F64/Bool/String/Bytes/Uuid。RegisteredEvent 丢弃不撤销；启用失败、停用或卸载会自动撤销定义，旧句柄失效。重新启用要重新注册。模组不能使用别人的已注册事件句柄发布。Rust 发布端在独立的 `ferrum.custom_event_publisher.v1` 子表中，不改变已有订阅表布局。
+- `register` 的 `name` 前缀必须是当前 manifest 的模组名。
+- 丢弃 `RegisteredEvent` 不撤销。`unregister(token)` 手动撤销。启用失败、停用、卸载自动撤销，旧句柄失效，重新启用要重新注册。
+- 只能用自己注册的句柄发布。
 
-## native 使用 LL EventBus 监听
+### native C++ 监听
 
-包含公开的 `ferrum/CustomEvent.h`，直接使用 LL 监听器，无需链接 loader 导入库。所有业务事件共用 `ferrum::FerrumCustomEvent` 类型，通过 name 区分。示例放在 native 模组的 onEnable 中；目标 Rust/native 发布者都适用：
+包含 `ferrum/CustomEvent.h`，直接用 LL `EventBus`，不需要链接 loader。所有自定义事件共用 `ferrum::FerrumCustomEvent` 类型，用 `name()` 区分。模组需依赖 `ferrum-loader`。
 
 ```cpp
 #include "ferrum/CustomEvent.h"
 #include "ll/api/event/EventBus.h"
 #include "ll/api/mod/NativeMod.h"
 
+// onEnable 中
 auto owner = ll::mod::NativeMod::current();
-auto listener = ll::event::EventBus::getInstance()
-    .emplaceListener<ferrum::FerrumCustomEvent>(
-        [](ferrum::FerrumCustomEvent& event) {
-            if (!event.active()) return;
-            std::string name;
-            if (event.name(name) != FerrumStatus_OK
-                || name != "economy.balance_changing.v1") return;
-            int64_t next{};
-            if (event.getI64("new_balance", next) == FerrumStatus_OK && next < 0) {
-                (void)event.cancel();
-            }
-        },
-        ll::event::EventPriority::High,
-        owner
-    );
-// 保存 ListenerPtr 以便在 onDisable 中提前 removeListener(listener)。
-// LL 同时按显式 owner 管理监听归属。
+auto listener = ll::event::EventBus::getInstance().emplaceListener<ferrum::FerrumCustomEvent>(
+    [](ferrum::FerrumCustomEvent& event) {
+        if (!event.active()) return;
+        std::string name;
+        if (event.name(name) != FerrumStatus_OK || name != "economy.balance_changing.v1") return;
+        int64_t next{};
+        if (event.getI64("new_balance", next) == FerrumStatus_OK && next < 0) {
+            (void)event.cancel();
+        }
+    },
+    ll::event::EventPriority::High,
+    owner);
+// 保存 listener，可在 onDisable 中 removeListener
 ```
 
-`name`、`getString`、`getBytes` 将输出写入当前 native 模组自己的容器，getI64/getU64/getF64/getBool/getUuid 通过引用写出，均返回 FerrumStatus。cancel 返回 Unsupported 表示事件不可取消；请通过该方法取消，不要强转父类绕过协议检查。事件引用不能保存到回调之外，字段副本可以保存。
+- 取值方法：`getI64` `getU64` `getF64` `getBool` `getUuid` 写入引用；`name`、`getString`、`getBytes` 写入调用方容器。均返回 `FerrumStatus`。
+- `cancel()` 返回 `Unsupported` 表示事件不可取消。不要强转基类绕过。
+- 事件引用不能保存到回调之外，取出的字段副本可以保存。
+- 回调中先查 `event.active()`：发布者在派发中被撤销时，LL 已取得的监听快照仍可能进入回调。
+- 不要自己构造 `FerrumCustomEvent` 并 `publish`。发布必须走下面的协议。
 
-native 模组需依赖 ferrum-loader，确保通用 LL emitter 已注册；无监听时 LL 仍接受后续订阅。不要自行构造 FerrumCustomEvent 并 publish，业务发布必须走协议以验证描述、生命周期和字段。
+### native C++ 发布
 
-## C++ 原生发布端
-
-原生模组在 manifest 声明对 `ferrum-loader` 的依赖，将 `cpp-shim/include/ferrum/` 的生成 ABI 头及 `NativeEvents.h` 加入 include 路径。无需链接 Rust 或 loader 导入库。公开入口只有 `ferrum_native_event_api_v1`，通过 `GetProcAddress` 获取：
+模组声明依赖 `ferrum-loader`，把 `cpp-shim/include/ferrum/` 加入 include 路径（`ferrum_abi.h` 与 `NativeEvents.h`）。不需要链接 Rust 或 loader 导入库。入口只有 `ferrum_native_event_api_v1`，用 `GetProcAddress` 获取。
 
 ```cpp
 #include <Windows.h>
@@ -112,18 +168,16 @@ static FfiStr ffi(std::string_view s) {
     return {reinterpret_cast<uint8_t const*>(s.data()), s.size()};
 }
 
-// 作为原生模组实例成员持有；禁止在第一次启用后仍复用被撤销的旧句柄。
 NativeEventApiV1 const* api = nullptr;
-EventProviderHandle provider{};
-CustomEventHandle balanceChanging{};
+EventProviderHandle     provider{};
+CustomEventHandle       balanceChanging{};
 
-// 在 onEnable 内、主线程调用。economy 必须是该原生模组真实的 manifest name。
+// onEnable 内、主线程调用。"economy" 必须是本模组 manifest 的 name。
 bool enableEvents() {
     auto dll = GetModuleHandleW(L"ferrum-loader.dll");
     if (!dll) return false;
     auto getApi = reinterpret_cast<FerrumGetNativeEventApiV1>(
-        GetProcAddress(dll, "ferrum_native_event_api_v1")
-    );
+        GetProcAddress(dll, "ferrum_native_event_api_v1"));
     if (!getApi) return false;
     api = getApi();
     if (!api || api->struct_size < sizeof(NativeEventApiV1)) return false;
@@ -133,12 +187,12 @@ bool enableEvents() {
         {ffi("old_balance"), EventValueKind_I64, 0},
         {ffi("new_balance"), EventValueKind_I64, 0},
     };
-    CustomEventDefinitionV1 definition{};
-    definition.struct_size = sizeof(definition);
-    definition.name = ffi("economy.balance_changing.v1");
-    definition.cancellable = FfiBool_TRUE;
-    definition.fields = {fields, 2};
-    if (api->register_event(provider, &definition, &balanceChanging) != FerrumStatus_OK) {
+    CustomEventDefinitionV1 def{};
+    def.struct_size = sizeof(def);
+    def.name        = ffi("economy.balance_changing.v1");
+    def.cancellable = FfiBool_TRUE;
+    def.fields      = {fields, 2};
+    if (api->register_event(provider, &def, &balanceChanging) != FerrumStatus_OK) {
         api->close_provider(provider);
         provider = {};
         return false;
@@ -146,7 +200,7 @@ bool enableEvents() {
     return true;
 }
 
-// 在真正改变余额前调用；返回 false 时调用方不得修改余额。
+// 修改余额前调用。返回 false 时不得修改。
 bool allowBalanceChange(int64_t oldValue, int64_t newValue) {
     EventValueV1 values[]{
         {ffi("old_balance"), EventValueKind_I64, 0, static_cast<uint64_t>(oldValue), {}},
@@ -157,7 +211,7 @@ bool allowBalanceChange(int64_t oldValue, int64_t newValue) {
     return status == FerrumStatus_OK && cancelled == FfiBool_FALSE;
 }
 
-// 在 onDisable 内调用；LL 的停用/卸载通知也会兜底撤销。
+// onDisable 内调用。LL 的停用、卸载通知也会兜底撤销。
 void disableEvents() {
     if (provider) api->close_provider(provider);
     provider = {};
@@ -165,21 +219,26 @@ void disableEvents() {
 }
 ```
 
-金额单位由 economy 契约约定；更改字段类型、删除字段或改变含义时使用新的事件名版本。该示例不进行实际扣款。发布时必须提交全部声明字段，不能缺少、多出、重复或类型不匹配；字段顺序不限。首版字段只读，唯一修改能力是取消。
+`NativeEventApiV1` 函数：`open_provider`、`close_provider`、`register_event`、`unregister_event`、`publish`、`take_last_error`。`take_last_error` 用调用方的 `FfiByteWriter` 取回详情；写入器不得抛异常，也不得在返回后使用其缓冲。
 
-## C ABI 与生命周期
+### C ABI 生命周期约定
 
-- 注册及发布都要求主线程，错误线程返回 WrongThread。注册可以在 onEnable 内进行；只有 LL 已标记 Enabled 的原生模组可以发布，因此不要在 onEnable 尚未返回时立即发布。
-- 发布者名称必须是已加载的 native 模组名称；每个名称只能打开一个发布者。事件必须使用 `<模组名>.` 前缀。名称归属用于协作和清理，不是针对恶意进程内代码的权限隔离。
-- 句柄是能力：只有持有发布者句柄的代码才能操作对应事件。事件/监听器/作用域分别使用独立代数池；不要混用，关闭后不能复用旧句柄。
-- 宿主同步复制事件描述和发布载荷，不保存发布者 C++ 指针或函数指针。输入借用在调用返回前有效；没有跨 DLL 释放。STRING 为 UTF-8，BYTES 为任意字节，UUID 恰为 16 字节；F64 的 scalar 使用 `std::bit_cast<uint64_t>(value)`。所有 reserved 填 0。
-- 发布者停用/卸载时撤销其事件；Rust 按名称的订阅继续保留，发布者重新启用后用新句柄重新注册同名事件即可继续接收。Rust 模组停用、卸载或启用失败则撤销其订阅。
-- 发布期间撤销发布者或事件会停止后续派发并返回 ModDisabled；发布端必须检查 status，仅在 OK 后读取取消结果及继续业务操作。
-- native 发布者不向协议注册函数指针；native 的订阅回调由 LL 管理。若监听间接触发 native 发布者自停用/卸载，调用方自己的 native 生命周期和调用栈安全仍由该模组负责。Rust 发布者会计入宿主 active_invocations，停用延迟排空，栈内同步自卸载被拒绝。
-- 真实宿主通过同一个 LL EventBus 流派发两端监听，任意一端 cancel 都会同步终止后续两端监听。将旧 LL 事件转入协议时，适配器仍负责决定桥接时机和向原事件回写取消。
-- 发布过程中撤销事件或停用 Rust 发布者后，Rust 监听跳过，publish 返回 ModDisabled。LL 已取得的 native 监听快照仍可能进入回调；需用 event.active() 检查是否仍有效。
-- `NativeEventApiV1::take_last_error` 用调用方 Writer 取回详情；Writer 必须不抛异常，并且不得在返回后使用其借用缓冲。
+- 注册、发布都必须在主线程，否则返回 `WrongThread`。
+- 只有 LL 已标记 Enabled 的 native 模组才能发布。`onEnable` 返回前不要发布。
+- 发布者名必须是已加载的 native 模组名，同名只能打开一个发布者（`AlreadyExists`）。事件名前缀不符返回 `PermissionDenied`。名称归属用于协作与清理，不防恶意的进程内代码。
+- 句柄就是能力：只有持有发布者句柄的代码能操作其事件。发布者、事件、监听器、作用域各用独立的代数池。关闭后旧句柄返回 `StaleHandle`，不要复用。
+- 宿主同步复制事件描述和发布载荷，不保存发布者的指针。输入借用只在调用返回前有效。没有跨 DLL 释放。
+- `F64` 的 `scalar` 用 `std::bit_cast<uint64_t>(value)`。`reserved` 填 0。
+- native 发布者停用或卸载时撤销其事件。Rust 的按名订阅保留，发布者重新启用并重新注册同名事件后继续接收。
+- Rust 模组停用、卸载或启用失败时撤销其订阅。
+- 发布过程中事件或发布者被撤销：后续派发停止，`publish` 返回 `ModDisabled`。只在 `OK` 时读取取消结果。
+- Rust 发布者计入宿主的活跃调用，停用延迟到排空后，栈内同步自卸载被拒绝。native 发布者在监听器里间接触发自身停用或卸载时，调用栈安全由该模组自己负责。
 
 ## Mock
 
-`MockHost::native_event_api()` 返回同一协议的纯 Rust 原生发布端，Rust 的 register/publish 也可在 mock 使用。字段验证、作用域、取消、重入与回调核心和真实宿主共用；无 LL 环境时直接按优先级派发 Rust 监听，不模拟 native C++ 的 LL 监听器。mock 不查询真实 LL 模组身份/状态，调用方通过 close_provider 模拟原生停用。
+- `MockHost::emit_player_join(id)`、`emit_player_disconnect(id)`、`emit_player_chat(id, msg)` 同步派发玩家事件。玩家需先 `add_player`。加入和聊天返回是否被取消。不改变在线状态，不模拟广播。
+- Rust 的 `register` / `publish` / `subscribe` 在 mock 中可用，字段校验、取消、重入与真实宿主共用同一份核心。
+- `MockHost::native_event_api()` 返回与 C++ 发布端相同的 `NativeEventApiV1`，用 `close_provider` 模拟 native 停用。
+- mock 不模拟 native C++ 监听器，不检查真实的 LL 模组身份与启用状态。
+
+见 [测试与调试](./testing.md)。

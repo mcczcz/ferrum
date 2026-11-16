@@ -4,8 +4,8 @@ Ferrum 是构建在 [LeviLamina](https://github.com/LiteLDev/LeviLamina) 之上�
 服主安装 `ferrum-loader`，模组作者只用 Cargo 就能编写 `type = "ferrum"` 的 Rust 模组，
 无需 C++ 工具链、无需 BDS 头文件。
 
-> 当前进度：M1（加载器最小闭环）。可用 API：生命周期、日志、模组元数据与目录、panic 防火墙。
-> 事件、命令、玩家、调度等领域 API 按 [路线图](docs/00-overview/roadmap.md) 逐步加入。
+> 可用 API：生命周期、日志、模组元数据与目录、panic 防火墙、玩家/实体/方块、命令、玩家事件、自定义事件。
+> 调度、表单等按 [路线图](docs/roadmap.md) 逐步加入。
 
 ## 写一个模组
 
@@ -55,7 +55,7 @@ impl FerrumMod for MyMod {
 }
 ```
 
-完整示例见 [`examples/hello`](examples/hello)，开发指南见 [快速开始](docs/02-mod-developer-guide/quick-start.md)、[Rust SDK 开发手册](docs/02-mod-developer-guide/sdk-reference.md) 与 [测试与调试指南](docs/02-mod-developer-guide/testing-and-debugging.md)。
+完整示例见 [`examples/hello`](examples/hello)，文档见 [docs/](docs/README.md)。
 
 ## 仓库结构
 
@@ -82,7 +82,7 @@ xmake f -p windows -a x64 -m release -y --target_type=server
 xmake
 ```
 
-产物位于 `bin/ferrum-loader/`。详见 [源码联编指南](docs/03-maintainer-playbook/build-from-source.md)。
+产物位于 `bin/ferrum-loader/`。详见 [构建](docs/maintain/build.md)。
 
 ## License
 

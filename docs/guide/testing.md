@@ -1,20 +1,15 @@
-# 模组测试与调试指南（`ferrum-host-mock` 与 BDS 联调）
+# 测试与调试
 
-在开发 Ferrum Rust 模组时，不需要每次改动都启动完整的 BDS 服务端。推荐采用**“纯 Rust 单元测试（`ferrum-host-mock`）+ BDS 影子热重载”**的两段式工作流。
+两步：先用 `ferrum-host-mock` 写纯 Rust 测试，再放进真实 BDS 联调。
 
----
+## MockHost 单元测试
 
-## 1. 使用 `ferrum-host-mock` 编写纯 Rust 单元测试
+`ferrum-host-mock` 是纯 Rust 假宿主。创建它的线程就是"主线程"。
 
-`ferrum-host-mock` 是一个纯 Rust 实现的假宿主，实现了与 `ferrum-loader` 一致的 `FerrumHostApi` VTable、双向版本握手、错误回传与 panic 捕获逻辑。
-
-### 1.1 配置 `Cargo.toml`
-
-将 crate 类型同时设为 `cdylib` 与 `rlib`（否则集成测试 `tests/*.rs` 无法链接你的模组类型）：
+`Cargo.toml`：模组必须同时是 `cdylib` 和 `rlib`，否则 `tests/*.rs` 链接不到模组类型。
 
 ```toml
 [lib]
-name = "my_mod"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
@@ -24,49 +19,34 @@ ferrum-sdk = "0.1"
 ferrum-host-mock = "0.1"
 ```
 
-### 1.2 基础生命周期与日志断言
+### 生命周期与日志
 
 ```rust
-#[cfg(test)]
-mod tests {
-    use ferrum_host_mock::{MockHost, MockModState};
-    use ferrum_sdk::Level;
+use ferrum_host_mock::{MockHost, MockModState};
+use ferrum_sdk::Level;
 
-    use super::MyMod;
+#[test]
+fn lifecycle() {
+    let host = MockHost::new();
+    let m = host.load_named::<MyMod>("my-mod", "0.1.0").unwrap(); // 调 on_load
+    host.enable(&m).unwrap();
+    assert_eq!(host.state(&m), Some(MockModState::Enabled));
+    host.disable(&m).unwrap();
+    host.enable(&m).unwrap();
+    host.unload(&m).unwrap(); // 仍启用则先停用
+    assert_eq!(host.state(&m), Some(MockModState::Unloaded));
 
-    #[test]
-    fn lifecycle_and_logs() {
-        // 创建 MockHost；当前测试线程即被视为“BDS 主线程”
-        let host = MockHost::new();
-
-        // 加载模组并触发 on_load（Mock 根目录为 mods/<name>/）
-        let m = host.load_named::<MyMod>("my-mod", "0.1.0").unwrap();
-        assert_eq!(host.state(&m), Some(MockModState::Loaded));
-
-        // 启用 / 停用 / 重新启用 / 卸载
-        host.enable(&m).unwrap();
-        assert_eq!(host.state(&m), Some(MockModState::Enabled));
-
-        host.disable(&m).unwrap();
-        assert_eq!(host.state(&m), Some(MockModState::Disabled));
-
-        host.enable(&m).unwrap();
-        host.unload(&m).unwrap();
-        assert_eq!(host.state(&m), Some(MockModState::Unloaded));
-
-        // 检查模组输出的日志
-        let logs = host.logs(&m);
-        assert!(logs.iter().any(|r| r.level == Level::Info && r.message.contains("已启用")));
-        assert!(host.panics(&m).is_empty());
-    }
+    assert!(host.logs(&m).iter().any(|r| r.level == Level::Info && r.message.contains("已启用")));
+    assert!(host.panics(&m).is_empty());
 }
 ```
 
-也可以直接用 `host.load::<MyMod>()`（默认以类型末段名作为模组名、版本 `"0.1.0"`）。`MockHost` 在 `Drop` 时会自动按加载逆序卸载尚未卸载的模组。
+- `host.load::<MyMod>()`：模组名取类型名末段，版本 `0.1.0`。
+- 模组目录为 `mods/<name>`（`config_dir()` 等返回 `mods/<name>/config`，不会创建真实目录）。
+- `MockHost` drop 时，按加载逆序卸载仍加载的模组。
+- 状态：`Loaded`、`Enabling`、`Enabled`、`Disabling`、`Disabled`、`Unloaded`。
 
-### 1.3 测试错误回传与 Panic 防火墙
-
-验证 `on_load` 失败时错误信息是否正确传回宿主，以及 `on_enable` 触发 panic 后是否进入 `Disabled` 且回调被毒化：
+### Panic 防火墙
 
 ```rust
 use ferrum_host_mock::{MockHost, MockModState};
@@ -76,10 +56,7 @@ struct BrokenMod;
 
 #[ferrum_sdk::mod_entry]
 impl FerrumMod for BrokenMod {
-    fn on_load(_ctx: &ModContext) -> Result<Self> {
-        Ok(Self)
-    }
-
+    fn on_load(_ctx: &ModContext) -> Result<Self> { Ok(Self) }
     fn on_enable(&mut self, _ctx: &ModContext, _token: &MainThreadToken<'_>) -> Result<()> {
         panic!("simulated failure");
     }
@@ -94,57 +71,103 @@ fn panic_is_isolated() {
     assert_eq!(err.kind(), ErrorKind::ModPanicked);
     assert_eq!(host.state(&m), Some(MockModState::Disabled));
 
-    // 验证 panic 消息和源码位置已上报
     let panics = host.panics(&m);
-    assert_eq!(panics.len(), 1);
     assert_eq!(panics[0].message, "simulated failure");
     assert!(panics[0].location.contains(".rs"));
 
-    // 毒化后再次启用直接返回 CallbackPoisoned，不会再次进入用户代码
-    let err2 = host.enable(&m).unwrap_err();
-    assert_eq!(err2.kind(), ErrorKind::CallbackPoisoned);
-
+    // 回调已毒化，再次启用不会进入用户代码
+    assert_eq!(host.enable(&m).unwrap_err().kind(), ErrorKind::CallbackPoisoned);
     host.unload(&m).unwrap();
 }
 ```
 
-### 1.4 编写多个测试模组的组织规范
+`on_load` 返回 `Err` 时，`load` 返回该错误（见 `examples/hello/tests/load_error.rs`）。
 
-由于每个使用了 `#[ferrum_sdk::mod_entry]` 的模块都会生成固定全局符号 `ferrum_mod_entry_v1` 且使用静态 `ModState`：
-- **不同模组类型必须放在不同的集成测试文件**（如 `tests/load_error.rs`、`tests/panic_firewall.rs`），因为每个集成测试文件会被 Cargo 编译为独立的测试二进制。
-- `ferrum-sdk` 的宿主全局根表保存在进程级 `OnceLock` 中，因此 `MockHost::new()` 内部带互斥锁，同一进程内的测试会串行持有 `MockHost`，无需手动加 `--test-threads=1`。
+### 构造游戏世界
 
----
+| 方法 | 作用 |
+| :--- | :--- |
+| `add_player(MockPlayer { uuid, name, operator })` | 玩家上线，返回 `ActorRuntimeId`。同 UUID 会替换旧玩家 |
+| `remove_player(uuid)` | 玩家下线 |
+| `player_state(uuid)` / `set_player_state(uuid, MockPlayerState)` | 读写位置、维度、生命值（默认 20）、最大生命值、游戏模式。值非法返回 `InvalidArgument`，维度未注册返回 `NotFound` |
+| `player_messages(uuid)` | 取玩家收到的 `send_message` 文本 |
+| `add_dimension(dim)` | 注册额外维度，供传送使用 |
+| `add_actor(MockActor)` / `remove_actor(id)` / `actor_state(id)` | 非玩家实体（`ActorKind::ACTOR` 或 `MOB`） |
+| `register_block_type(name, id)` | 注册方块类型。默认只有 `minecraft:air`、`minecraft:stone` |
+| `set_chunk_loaded(dim, x, z, loaded)` | 标记区块已加载。默认没有已加载区块 |
+| `set_block(dim, pos, name)` | 预置方块。未设置的位置视为空气 |
+| `execute_command(name, origin, &[(参数名, MockCommandValue)])` | 执行已注册命令，返回 `MockCommandOutput { messages: Vec<(bool, String)> }`，`bool` 为是否错误 |
+| `emit_player_join(id)` / `emit_player_chat(id, msg)` / `emit_player_disconnect(id)` | 派发玩家事件，详见 [事件](./events.md) |
+| `native_event_api()` | 以 native 发布者身份测试自定义事件 |
 
-## 2. 真实 BDS 部署与开发期热重载
+`execute_command` 的 `origin` 为 `None` 表示控制台，权限最高；为 `Some(uuid)` 时按该玩家是否 operator 检查权限。`MockCommandValue` 有 `Int`、`Float`、`Bool`、`String`、`Players`。按命令名和参数类型匹配重载，找不到返回 `NotFound`。
 
-### 2.1 编译与部署
+```rust
+use ferrum_host_mock::{MockCommandValue, MockHost, MockPlayer};
+use ferrum_sdk::PlayerUuid;
+use hello_ferrum::HelloFerrum;
+
+// 以 examples/hello 的 HelloFerrum 为例。
+#[test]
+fn hello_command_and_chat() {
+    let host = MockHost::new();
+    let m = host.load::<HelloFerrum>().unwrap();
+    host.enable(&m).unwrap();
+
+    let uuid = PlayerUuid { bytes: [1; 16] };
+    let id = host.add_player(MockPlayer { uuid, name: "Steve".into(), operator: false });
+
+    let out = host
+        .execute_command("ferrum-hello", Some(uuid), &[("target", MockCommandValue::Players(vec![uuid]))])
+        .unwrap();
+    assert!(out.messages.iter().any(|(is_error, _)| !is_error));
+    assert_eq!(host.player_messages(uuid), ["你好，Steve！"]);
+
+    // 返回值为是否有监听器取消了该事件；HelloFerrum 不取消聊天。
+    let cancelled = host.emit_player_chat(id, "hi").unwrap();
+    assert!(!cancelled);
+}
+```
+
+### 限制
+
+- 每个进程同时只有一个 `MockHost`。`MockHost::new()` 会等前一个被 drop，所以同进程内的测试自动串行，不用加 `--test-threads=1`。
+- 世界状态与"主线程"绑定在创建 `MockHost` 的线程上，不要在其他线程调用 `host` 的方法。
+- 每个模组 crate 只能有一个 `#[mod_entry]`（导出固定符号 `ferrum_mod_entry_v1`）。要测多个测试模组，每个放进独立的 `tests/*.rs`，Cargo 会把它们编译成独立的测试二进制。例：`examples/hello/tests/`。
+- mock 不模拟 LL（EventBus、命令注册表、真实的模组身份）和 native C++ 监听器。涉及这些的行为要在真实 BDS 验证。
+
+## 真实 BDS 联调
 
 ```powershell
 cargo build --release
 ```
 
-将产物与配置文件复制到 BDS 目录：
+复制到 `<bds_root>/mods/my-mod/`：
 
 ```text
-<bds_root>/mods/my-mod/
-├── manifest.json     # "type": "ferrum", "entry": "my_mod.dll", 依赖 "ferrum-loader"
-├── my_mod.dll        # 来自 target/release/my_mod.dll
-└── my_mod.pdb        # 可选，建议一并复制以便崩溃/调试符号解析
+manifest.json   # "type": "ferrum", "entry": "my_mod.dll", 依赖 "ferrum-loader"
+my_mod.dll      # target/release/my_mod.dll
+my_mod.pdb      # 可选，调试符号
 ```
 
-### 2.2 影子复制热重载流程
+manifest 写法见 [manifest](./manifest.md)。
 
-`ferrum-loader` 在加载模组时，会把 `my_mod.dll`（及同名 `.pdb`）按内容哈希复制到 `mods/my-mod/.ferrum-shadow/my_mod-<hash>.dll` 后再加载，**不会锁定原始 `my_mod.dll`**。
+### 影子复制与重载
 
-开发迭代时：
-1. 保持 BDS 运行；
-2. 本地执行 `cargo build`；
-3. 直接覆盖 `<bds_root>/mods/my-mod/my_mod.dll`；
-4. 在 BDS 控制台输入：
+`ferrum-loader` 加载时，先把 `my_mod.dll` 和同名 `.pdb` 按内容哈希复制到 `mods/my-mod/.ferrum-shadow/my_mod-<hash>.dll`，再加载副本，所以不会锁定原 dll。
+
+迭代流程：
+
+1. BDS 保持运行。
+2. `cargo build --release`，覆盖 `mods/my-mod/my_mod.dll`。
+3. 在 BDS 控制台执行：
+
    ```text
    ll mod reload my-mod
    ```
-5. 旧版本句柄失效并停用卸载，新版本 `.dll` 立即生效。
 
-> 调试技巧：若使用 VS Code `codelldb` 或 Visual Studio 附加到 `bedrock_server_mod.exe`，只要把 `.pdb` 一起复制到模组目录（`ferrum-host` 会自动把它复制到 `.ferrum-shadow/`），就可以直接在 Rust 模组源码中下断点单步调试。
+旧镜像默认保留在内存里，不会 `FreeLibrary`，每次重载多占一份代码段。这是开发期成本，原因见 [线程与安全](../design/threading.md)。
+
+### 调试
+
+用 Visual Studio 或 VS Code（codelldb）附加到 BDS 进程。把 `.pdb` 放在 dll 同目录，加载器会一起复制到 `.ferrum-shadow/`，可直接在 Rust 源码里下断点。

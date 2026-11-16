@@ -1,140 +1,100 @@
-# 三层隔离架构与生命周期映射
+# 架构
 
-## 1. 全局拓扑与物理产物边界
+## 目标与非目标
 
-Ferrum 在物理产物上严格切分为**宿主加载器（`ferrum-loader.dll`）**与**下游 Rust 模组（`<mod_name>.dll`）**两大独立编译单元，中间仅通过纯 C 内存布局的 `ferrum-abi` 通信：
+问题：直接用 Rust 写 LeviLamina `native` 模组有四个障碍。
+
+- C++ ABI 随 MC 版本变化，绑定 `src/mc` 会让每次更新都要重编所有模组。
+- `native` 模组必须接入 LL 统一分配器，Rust 生态用自己的分配器，跨堆释放会崩。
+- panic 或 C++ 异常跨 FFI 是 UB。
+- BDS 世界状态非线程安全，Rust 容易误开后台线程。
+
+目标：
+
+- 一次编译，跨 MC/LL 版本运行。版本适配只在 `ferrum-loader.dll` 内完成。
+- 模组与宿主各用各的堆；游戏对象指针不出 `cpp-shim`，模组只拿 ID 和句柄。
+- 世界 API 在签名上要求 `MainThreadToken`，编译期挡住非主线程调用。
+- 模组 panic 只影响该模组，停用时自动回收其注册的资源。
+- 目标是安全 Rust 代码不能通过 Ferrum API 触发 UB；模组自己的 `unsafe` 不在保证内。
+- 只暴露少量语义稳定的领域 API。ABI 稳定不等于 `cpp-shim` 免维护。
+
+非目标：
+
+- 不自动映射 `src/mc` 头文件。
+- 不支持 Inline Hook。需要的场景写 C++ `native` 插件，或给 Ferrum 提领域 API。
+- ABI 不暴露 Rust 内部布局（`String`、`Vec`、`dyn Trait` 等）。
+- 不替代 LL 的目录扫描、依赖排序、`ll mod` 命令、日志。
+- 不提供进程级沙箱。
+- 不保证 `FreeLibrary` 级热卸载，默认保留镜像。
+
+## 层次
+
+产物有两个：`ferrum-loader.dll`（LL 的 `native` 插件）和各模组 `<name>.dll`（`type = "ferrum"`）。两者之间只有纯 C ABI。
 
 ```text
-+-----------------------------------------------------------------------------------+
-| 进程空间: bedrock_server_mod.exe + LeviLamina.dll                                  |
-|                                                                                   |
-|  +-----------------------------------------------------------------------------+  |
-|  | 一级 Native 插件: ferrum-loader.dll (type = "native", preload/loadBefore)    |  |
-|  |                                                                             |  |
-|  |  +-----------------------------------+   extern "C"   +------------------+  |  |
-|  |  | Layer 1: cpp-shim (C++20)         | <============> | Layer 2:         |  |  |
-|  |  | - 唯一包含 ll/api/* 与 mc/* 头文件 |   内部静态链接  | ferrum-host      |  |  |
-|  |  | - 继承 ll::mod::ModManager        |                | (Rust staticlib) |  |  |
-|  |  | - 对接 EventBus / CommandRegistrar|                | - 代数句柄池     |  |  |
-|  |  | - 对接 ServerThreadExecutor       |                | - VTable 组装分发|  |  |
-|  |  | - C++ try/catch <-> 状态码转换    |                | - ModOwnership   |  |  |
-|  |  +-----------------------------------+                +--------+---------+  |  |
-|  +----------------------------------------------------------------|------------+  |
-|                                                                   |               |
-|                     纯 C ABI 边界 (ferrum-abi: #[repr(C)] VTable + 不透明句柄)      |
-|                     无符号导入链接，加载时通过入口函数单点注入 FerrumHostApi*         |
-|                                                                   |               |
-|  +----------------------------------------------------------------v------------+  |
-|  | 二级 Ferrum 模组: my_rust_mod.dll (manifest.json: type = "ferrum")          |  |
-|  |                                                                             |  |
-|  |  +-----------------------------------------------------------------------+  |  |
-|  |  | Layer 3: ferrum-sdk + ferrum-macros                                   |  |  |
-|  |  | - #[ferrum_sdk::mod_entry] 展开导出 ferrum_mod_entry_v1               |  |  |
-|  |  | - catch_unwind 异常防火墙                                             |  |  |
-|  |  | - MainThreadToken<'tick> / 安全 RAII 包装 / async 调度器封装           |  |  |
-|  |  +-----------------------------------------------------------------------+  |  |
-|  +-----------------------------------------------------------------------------+  |
-+-----------------------------------------------------------------------------------+
+bedrock_server + LeviLamina
+ └─ ferrum-loader.dll (native)
+     ├─ cpp-shim   (C++20)     唯一包含 ll/* 与 mc/* 的代码
+     └─ ferrum-host (Rust 静态库) 句柄池、VTable、回调所有权、生命周期状态
+          │  纯 C ABI：ferrum-abi (#[repr(C)] 表 + 句柄)
+          │  模组入口收到 *const FerrumHostApi
+ └─ my_mod.dll (ferrum)
+     └─ ferrum-sdk + ferrum-macros   安全 API、catch_unwind、MainThreadToken
 ```
 
-### 各层职责硬边界
-
-| 层级 / Crate | 语言与产物类型 | 允许的依赖 | 核心职责与禁令 |
+| Crate / 目录 | 产物 | 职责 | 禁止 |
 | :--- | :--- | :--- | :--- |
-| **`cpp-shim`** | C++20 源码（由 xmake 编译并链接进 `ferrum-loader.dll`） | `LeviLamina`、`src/mc`、C++ 标准库 | **唯一允许 `#include "ll/..."` 和 `"mc/..."` 的模块**。负责将 C++ 类方法、模板、虚函数与异常翻译为平坦的 `extern "C"` 垫片函数；导出 `ll_memory_operator_overrided` 与 `LL_REGISTER_MOD`。严禁包含复杂业务状态。 |
-| **`ferrum-host`** | Rust `staticlib`（静态链接进 `ferrum-loader.dll`） | `ferrum-abi`、`libloading` 等纯 Rust 库 | 管理二级 `.dll` 加载（影子复制 + `libloading`）、ABI 版本协商、全局 VTable 实例构造、代数槽位句柄池（Generational Arena）、模组资源所有权表（`ModOwnership`，M2）与任务调度队列（M3）。严禁直接绑定 C++ 符号。 |
-| **`ferrum-abi`** | Rust `rlib`（`#![no_std]` 兼容设计） | **零外部依赖** | 仅定义 `#[repr(C)]` 结构体、固定底层类型枚举、函数指针类型与常量。宿主与 SDK 共同依赖此 Crate。 |
-| **`ferrum-sdk`** | Rust `rlib` | `ferrum-abi`、`ferrum-macros` | 面向模组开发者的安全高级 API。将底层句柄与 VTable 调用封装为符合 Rust 人体工学的类型、Trait 与 Future。 |
-| **`ferrum-macros`** | Rust `proc-macro` | `syn`、`quote` | 生成 `ferrum_mod_entry_v1` C 导出符号、自动注入 ABI 握手校验与 `catch_unwind` 包装代码。 |
-| **`ferrum-host-mock`** | Rust `rlib`（仅 `dev-dependencies`） | `ferrum-abi` | 纯 Rust 实现的假宿主 VTable，让下游模组与 `ferrum-sdk` 在不启动 BDS 的情况下 `cargo test`。 |
-| **`xtask`** | Rust 二进制（不发布） | `cbindgen`、`ferrum-abi` | 生成 `cpp-shim/include/ferrum/ferrum_abi.h` 与 `layout_lock.rs` 追加断言，CI 校验生成物未过期。 |
+| `cpp-shim` | C++ 源码，链入 `ferrum-loader.dll` | 把 LL/MC 的类、虚函数、异常翻译成 `extern "C"`；注册 `FerrumModManager`；导出 `LL_REGISTER_MOD` 并启用 LL 内存操作符 | 持有业务状态 |
+| `ferrum-host` | Rust `staticlib` | 影子复制并加载模组 DLL、握手、全局 VTable、代数句柄池、`ModOwnership`、熔断 | 直接绑定 C++ 符号 |
+| `ferrum-abi` | `#![no_std]` rlib，无外部依赖 | `#[repr(C)]` 类型、函数指针、常量 | 放逻辑 |
+| `ferrum-sdk` | rlib | 模组侧安全 API | 依赖 host / shim |
+| `ferrum-macros` | proc-macro | `#[mod_entry]`：导出 `ferrum_mod_entry_v1`、握手、`catch_unwind` | - |
+| `ferrum-host-mock` | rlib（dev） | 纯 Rust 假宿主，供模组 `cargo test` | - |
+| `xtask` | 二进制 | 生成 C 头文件与布局锁 | - |
 
-### 依赖方向（单向，禁止反向）
+依赖方向：
 
 ```text
-ferrum-abi  <──  ferrum-host  <──(extern "C")──  cpp-shim  ──>  LeviLamina / mc
+ferrum-abi <── ferrum-host <──(extern "C")── cpp-shim ──> LeviLamina / mc
     ^
-    └────────  ferrum-sdk (+ ferrum-macros)  <──  下游模组
+    └── ferrum-sdk (+ ferrum-macros) <── 模组
 ```
 
-- 下游模组与 `ferrum-sdk` 永远不依赖 `ferrum-host` 或 `cpp-shim`；它们之间唯一的接触面是运行时传入的 `*const FerrumHostApi`。
-- `ferrum-host` 不依赖 `ferrum-sdk`。宿主侧与模组侧各自从 `ferrum-abi` 出发实现自己的安全封装。
+- 只有 `cpp-shim` 可以 `#include "ll/..."` 和 `"mc/..."`。
+- `ferrum-sdk` 与 `ferrum-host` 互不依赖，各自从 `ferrum-abi` 出发。
+- 模组与宿主唯一的接触面是运行时传入的 `*const FerrumHostApi`。
 
----
+## 接入 LeviLamina
 
-## 2. 对接 LeviLamina 模组管理器的精确机制
+Ferrum 使用 LL 的 `ModManager` / `ModManagerRegistry` 扩展点，没有私有 Hack。
 
-LeviLamina 原生设计了多语言/二级加载器扩展点 `ll::mod::ModManager` 与 `ll::mod::ModManagerRegistry`（参见 `ll/api/mod/ModManagerRegistry.h` 与 `ll/core/mod/ModRegistrar.cpp`）。Ferrum 完全遵循该官方机制接入，不做任何私有 Hack：
+加载顺序：
 
-### 2.1 加载顺序保障（Bootstrapping）
-在 `ModRegistrar::loadAllMods()` 执行期间：
-1. LeviLamina 首先注册 `NativeModManager`（`type = "native"`），随后一次性扫描 `mods/` 下所有子目录的 `manifest.json`，并通过 `ModLoadPlanner::resolve` 构建全服统一的拓扑加载计划（跨 `type` 统一解析 `dependencies`、`optionalDependencies`、`conflicts`、`loadBefore`）。
-2. **`ferrum-loader` 自身的 `manifest.json`**：
-   - `name`: `"ferrum-loader"`
-   - `type`: `"native"`
-   - `entry`: `"ferrum-loader.dll"`
-3. **所有下游 Rust 模组的 `manifest.json`**：
-   - `type`: `"ferrum"`
-   - `entry`: `"<mod_name>.dll"`
-   - `dependencies`: **必须显式声明** `{ "name": "ferrum-loader", "version": "^0.1.0" }`。
-4. 因为下游模组依赖 `ferrum-loader`，`ModLoadPlanner` 拓扑排序**严格保证** `ferrum-loader` 先于所有 `type: "ferrum"` 模组执行 `load()`。
-5. 在 `ferrum-loader` 的 `ll_mod_load` 阶段，`cpp-shim` 实例化 `FerrumModManager : public ll::mod::ModManager("ferrum")`，调用 `ModManagerRegistry::getInstance().addManager(...)` 完成注册。紧接着当 `ModRegistrar` 遍历到后续 `type: "ferrum"` 模组时，`ModManagerRegistry::loadMod` 即可识别 `"ferrum"` 类型并无缝委派给 `FerrumModManager::load(Manifest)`。
+1. `ferrum-loader` 的 manifest 为 `type = "native"`。
+2. 每个 Ferrum 模组的 manifest 为 `type = "ferrum"`，且 `dependencies` 必须包含 `ferrum-loader`。
+3. LL 的 `ModLoadPlanner` 按依赖排序，保证 `ferrum-loader` 先 `load`。
+4. `Entry::load` 里创建 `FerrumModManager("ferrum")` 并 `addManager`。必须在 `load` 阶段注册，后续 `type = "ferrum"` 的模组才会被委派给它。
+5. 每个 Ferrum 模组对应一个 `FerrumMod`（`ll::mod::Mod` 派生类）。`ll list`、`ll mod enable/disable/unload/reload`、级联依赖检查、目录与日志器都直接可用。
 
-### 2.2 复用 LeviLamina 原生设施的收益
-由于每个 Rust 模组在 `FerrumModManager` 内都对应一个真实的 `std::shared_ptr<ll::mod::Mod>`（或其派生类 `FerrumMod`）实例并注册进 `ModManager`:
-- **命令管理全兼容**：控制台 `ll list`、`ll mod load <name>`、`ll mod enable <name>`、`ll mod disable <name>`、`ll mod unload <name>`、`ll mod reload <name>` 对 Rust 模组直接生效，级联依赖检查（`cascade`）由 `ModRegistrar` 自动处理。
-- **目录与资源包自动挂载**：`Mod::getModDir()`、`getDataDir()`、`getConfigDir()`、`getLangDir()` 直接可用；且 LeviLamina 在 `InitPacksHook` 中遍历 `ModManagerRegistry::getInstance().mods()`，Rust 模组目录下的 `resource_packs/` 与 `behavior_packs/` 会自动挂载到 BDS 世界中。
-- **独立具名日志器**：每个 Rust 模组天然获得独立的 `ll::io::Logger&`（`Mod::getLogger()`），日志前缀、控制台着色与文件轮转策略与原生 C++ 模组完全一致。
-- **所有权弱引用锚点**：向 LeviLamina 的 `EventBus::addListener`、`CommandHandle::runtimeOverload` 注册资源时，显式传入该二级模组对应的 `std::weak_ptr<ll::mod::Mod>`（而非默认的 `NativeMod::current()`，后者会错误指向 `ferrum-loader` 自身！），从而让 LeviLamina 内置的按模组禁用/清理逻辑与 Ferrum 的 `ModOwnership` 形成双重保险。
+规则：
 
-> **架构红线**：在 `cpp-shim` 调用任何带有默认参数 `std::weak_ptr<mod::Mod> mod = mod::NativeMod::current()` 的 LeviLamina API 时，**必须显式传入目标二级 `FerrumMod` 的 `shared_ptr`/`weak_ptr`**，严禁省略该参数！
+- `cpp-shim` 为某个 Ferrum 模组向 LL 注册资源（`EventBus` 监听等）时，必须传该模组的 `weak_ptr<FerrumMod>`。省略参数会默认成 `NativeMod::current()`，即 `ferrum-loader` 自己，LL 的按模组清理就失效了。只有 loader 自身资源（如自定义事件发射器）才用 `NativeMod::current()`。
 
----
+## 生命周期映射
 
-## 3. 全生命周期状态机与时序映射
+| 阶段 | LL 动作 | Ferrum 动作 |
+| :--- | :--- | :--- |
+| 加载（`loadAllMods`，`Level` 未就绪） | `FerrumModManager::load` | 复制 DLL 到 `<mod_dir>/.ferrum-shadow/` 后加载；查找 `ferrum_mod_entry_v1` 并握手；调用 `on_load(ctx)`；再 `addMod` 并执行 `Mod::onLoad` |
+| 启用（`enableAllMods` / `ll mod enable`） | `Mod::onEnable` 回调 | `on_enable(ctx, token)`。`Level`、`CommandRegistry` 此时可用 |
+| 停用（`ll mod disable` / 关服） | `Mod::onDisable` 回调 | 关闸；`on_disable`；撤销命令与事件监听并析构回调环境（`drop_fn`） |
+| 卸载（`ll mod unload`） | `Mod::onUnload` | 先停用；`on_unload`；移除模组记录，残留句柄变 `STALE_HANDLE`；保留 DLL 镜像 |
 
-BDS 启动、运行与关服过程中，LeviLamina 状态与 Ferrum 二级模组回调的精确映射如下：
+补充：
 
-```text
-BDS 进程阶段                 LeviLamina 动作                        Ferrum Host & 二级模组动作
-============                 ===============                        =========================
-[1] main() 早期              LeviLaminaMainHook
-    GamingStatus::Starting   └─ ModRegistrar::loadAllMods()
-                                ├─ 加载 ferrum-loader (native)  --> 初始化 ferrum-host 全局运行时与 VTable
-                                │                                   注册 FerrumModManager("ferrum")
-                                └─ 按拓扑序加载 ferrum 模组     --> FerrumModManager::load(manifest):
-                                                                    1. ferrum-host 复制 .dll 到 .ferrum-shadow/ 后加载
-                                                                    2. 查找 ferrum_mod_entry_v1，双向握手校验 ABI
-                                                                    3. 创建 ModContext，调用模组 on_load(&ctx)
-                                                                    (注: 此时 Level/CommandRegistry 尚未就绪)
+- 关服时 LL 按加载逆序停用各模组。
+- 停用发生时若模组回调仍在执行，停用推迟到最外层回调返回后完成。
+- `on_enable` 失败（含 panic）时模组回到 `Disabled`，已注册的资源被撤销。
+- 服务器已在运行时 `ll mod load`，LL 会在 `onLoad` 后自动接着调用 `onEnable`。所以 `on_load` 只做配置读取和内存初始化，依赖 `Level` 或 `CommandRegistry` 的操作放 `on_enable`。
+- `hot_unload_safe` 标志会被接受，但目前仍不 `FreeLibrary`（规划中）。
 
-[2] 资源包初始化             InitPacksHook                      --> 自动挂载各 ferrum 模组的 behavior/resource_packs
-
-[3] 服务端线程就绪           EnableAllModsHook
-    ServerScriptManager::    ├─ ModRegistrar::enableAllMods()   --> FerrumModManager::enable(name):
-    $onServerThreadStarted   │                                      获取 MainThreadToken，调用模组 on_enable(&ctx, token)
-                             │                                      (此时 Level / CommandRegistry 已就绪，可注册命令与世界逻辑)
-                             └─ GamingStatus::Running
-
-[4] 运行期热操作 (可选)      执行 `ll mod disable <name>`       --> FerrumModManager::disable(name)（停用协议）:
-    GamingStatus::Running                                           1. 关闸：拒绝新注册/新投递
-                                                                    2. 调用模组 on_disable(&ctx, token)
-                                                                    3. 撤销监听、命令、定时任务、表单、服务
-                                                                    4. 在主线程排空执行全部 drop_fn
-                             执行 `ll mod unload <name>`        --> FerrumModManager::unload(name):
-                                                                    1. 若处于 Enabled 先执行停用协议
-                                                                    2. 调用模组 on_unload(ctx)，模组 join 自建线程
-                                                                    3. 递增残留代数句柄，全部失效
-                                                                    4. 默认保留 .dll 镜像；仅 HOT_UNLOAD_SAFE 时 FreeLibrary
-
-[5] 关服阶段                 DisableAllModsHook
-    ServerInstance::         ├─ GamingStatus::Stopping
-    leaveGameSync            └─ ModRegistrar::disableAllMods()  --> 按加载逆序对各模组执行停用协议
-```
-
-停用与卸载的完整协议见《线程模型、并发与热卸载安全规范》§4。
-
-### 动态热加载边缘情况处理
-当服务器已处于 `GamingStatus::Running` 状态，管理员通过 `ll mod load <rust_mod>` 动态加载新模组时：
-- LeviLamina 的 `Mod::onLoad()` 内部在成功执行 `mImpl->onLoad(*this)` 后，检测到 `getGamingStatus() == GamingStatus::Running` 会**立即自动串联调用 `onEnable()`**（参见 `ll/api/mod/Mod.cpp`）。
-- 因此 `FerrumMod` 的 `onLoad` 与 `onEnable` 回调必须保持职责分离：`onLoad` 仅做配置读取、内存结构初始化与加载期钩子准备；依赖 `Level` 或 `CommandRegistry` 的操作统一放在 `onEnable` 中执行（或使用事件监听延迟触发）。
+停用与卸载的线程细节见 [threading.md](threading.md)。

@@ -1,62 +1,56 @@
-# 实施路线图
+# 路线图
 
-本路线图按“先打通端到端最小链路、再扩展 API 暴露面”的原则安排。每个里程碑结束时都必须有可在真实 BDS 上运行的产物与对应测试；在前一个里程碑的验收项全部通过之前，不开始下一个里程碑的 API 扩展。
+| 里程碑 | 状态 |
+| :--- | :--- |
+| M0 仓库骨架与生成管线 | 完成 |
+| M1 加载器最小闭环 | 完成 |
+| M2 回调基础设施与首批领域 API | 进行中，缺真实 BDS 验收 |
+| M3 调度与异步 | 未开始 |
+| M4 表单、跨模组服务、更多领域 | 未开始 |
+| M5 真正的热卸载（可选） | 未开始 |
 
----
+前一个里程碑验收通过前，不扩展下一个里程碑的 API。
 
-## M0：仓库骨架与生成管线（已完成）
+## M0 完成
 
-- Cargo workspace：`ferrum-abi`、`ferrum-host`、`ferrum-sdk`、`ferrum-macros`、`ferrum-host-mock`、`examples/hello`、`xtask`。
-- 将模板中的 C++ 目标改造为 `cpp-shim/`，xmake target 更名为 `ferrum-loader`，`before_build` 调用 `cargo build -p ferrum-host --locked` 与 `cargo xtask cbindgen --check`。
-- `cargo xtask cbindgen` 生成 `cpp-shim/include/ferrum/ferrum_abi.h`；`cargo xtask layout-lock` 生成布局断言。
-- 本地/CI 校验：`fmt` / `clippy -D warnings` / `test` / 生成物 `--check` / xmake 完整构建。
+- [x] workspace、`cpp-shim`、cbindgen 与 layout-lock 生成物
+- [x] fmt、clippy、test、`--check` 校验
 
-**验收**：空的 `ferrum-loader.dll` 能被 LeviLamina 加载并打印版本日志。
+## M1 完成
 
-## M1：加载器最小闭环（已完成）
+- [x] ABI 核心类型、模组描述符、`ferrum_mod_entry_v1`
+- [x] 影子复制加载、版本握手、句柄池、panic 上报
+- [x] `#[mod_entry]`、`catch_unwind` 跳板、`panic = "abort"` 拦截
+- [x] 卸载只保留镜像，不 `FreeLibrary`
+- [ ] 真实 BDS 验收：`examples/hello` 走完 load、enable、disable、reload、关服；`on_enable` panic 不崩服
 
-- `ferrum-abi`：`AbiVersion`、`FerrumStatus`、`FfiStr`、`FfiSlice`、`FfiBool`、`FfiByteWriter`、`FerrumHostApi`（`core_v1` + `log_v1` + `query_interface`）、`FerrumModDescriptor`、`ferrum_mod_entry_v1`。
-- `cpp-shim`：注册 `FerrumModManager("ferrum")`，转发 `onLoad/onEnable/onDisable/onUnload`。
-- `ferrum-host`：影子复制（`.ferrum-shadow/`）与 `libloading` 加载、双向握手、`ModContextHandle` 代数槽位池、`LastErrorSlot`、panic 上报与滑动窗口熔断计数。
-- `ferrum-sdk` + `ferrum-macros`：`#[mod_entry]`、`catch_unwind` 跳板、`panic = "abort"` 编译期拦截、`Logger`、`ModContext`、`MainThreadToken`。
-- 卸载**只实现保留镜像模式**（`hot_unload_safe` 仅记录提示，不调用 `FreeLibrary`）。
+## M2 进行中（ABI 1.1）
 
-**验收**：`examples/hello` 在 BDS 中完成 load → enable → disable → reload → 关服；在 `on_enable` 中故意 panic 不崩服且模组进入 `Disabled`。
+- [x] 回调基础设施：强类型回调、`ModOwnership`、停用协议、HRTB 令牌、重入守卫、panic 毒化
+- [x] 玩家、Actor、Mob 分层接口；基础方块读写
+- [x] 命令 Builder（Int、Float、Bool、String、Player）
+- [x] 玩家事件：加入、断开、聊天
+- [x] 自定义事件：Rust 与 native 互通
+- [x] `ferrum-host-mock` 覆盖以上 API
+- [ ] 真实 BDS 验收：回调内注销自身、回调内 `ll mod disable <self>`、踢出玩家后继续访问，均不崩服且返回预期错误
+- [ ] 发布 `compat_test_mod_v1_0.dll` 作为首个二进制兼容基准
 
-## M2：回调基础设施与第一批领域 API（进行中）
+## M3 调度与异步
 
-开发阶段已将玩家基础能力与坐标、维度、跨维度传送、当前/最大生命值、设置当前生命值及游戏模式读写统一为 ABI 1.1 的 `PlayerApiV1`，mock 同步支持。
+- [ ] `SchedulerApiV1`：`post`、`after_ticks`、`every_ticks`、`cancel`；停用时取消
+- [ ] SDK：运行时无关的 `on_main_thread(...).await`；停用时等待方收到 `ModDisabled`
+- [ ] 非 `Send` 闭包只在主线程析构
+- [ ] 验收：tokio 示例模组连续 reload 100 次，无崩溃、无悬挂 future
 
-已按 `ActorRef → MobRef → PlayerRef` 组合分层公共能力，增加逻辑实体 ID 查找、类型校验转换和独立 Actor/Mob 子表；已有玩家便捷方法内部复用公共实现。另增加已加载区块内的方块类型名/runtime ID/空气查询与默认类型设置/设为空气，提供独立 `BlockApiV1` 和 mock。开发版仍使用 ABI 1.1，各子表 minor 0。
+## M4 表单、服务、更多领域
 
-已完成 ABI 1.1 的命令 Builder（Int/Float/Bool/String/Player）、执行参数与输出、玩家名称/UUID 查找与在线列表、玩家名称/UUID/消息/OP 判断，并接通主线程检查、资源归属、停用排空、重入与 panic 防火墙以及 mock。现已增加加入、断开和聊天事件及 mock 派发，聊天支持读取与取消。开发阶段保留 ABI 1.1；真实 BDS 场景验收仍待完成，M2 尚未验收。
+- [ ] 表单：Simple、Modal、Custom，及异步封装
+- [ ] 命令：`#[derive(CommandArgs)]` 派生宏；更多参数类型（`BlockPos`、`Vec3`、`Actor`、`Enum` 等）
+- [ ] 事件：更多 LL 事件（如方块破坏、实体死亡）
+- [ ] 跨模组服务：`ServiceHandle` 与 `ServiceGuard`，提供方停用时撤销并等待释放
+- [ ] 按需增加领域子表：计分板、容器、实体属性等，流程见 [新增领域 API](./maintain/new-domain-api.md)
 
-- 强类型回调结构体、`ModOwnership`、停用协议（关闸 → 通知 → 撤销 → 排空）、自我停用的延迟执行。
-- SDK：`FnMut` 重入守卫、panic 毒化、HRTB 令牌签名。
-- 事件：`PlayerJoinEvent`（可拦截）、`PlayerDisconnectEvent`、`PlayerChatEvent`（可拦截）。
-- 玩家：按 `ActorRuntimeId` 解析的 `PlayerRef`：`real_name`、`uuid`、`send_message`、`is_operator`；`world::get_player(token, uuid)`。
-- 命令：基于 `RuntimeOverload` 的 Builder（先支持 `Int`/`Float`/`Bool`/`String`/`Player`）。
-- `ferrum-host-mock` 覆盖以上全部 API。
+## M5 真正的热卸载（可选）
 
-**验收**：
-- 在聊天回调中注销自身、在命令回调中 `ll mod disable <self>`、在回调中踢出玩家后继续访问该玩家，三种场景均不崩服，并返回预期错误。
-- `compat_test_mod_v1_0.dll` 作为首个二进制兼容基准发布。
-
-## M3：调度与异步（未开始）
-
-- `SchedulerApiV1`：`post`、`after_ticks`、`every_ticks`、`cancel`，以及模组停用时的取消门控。
-- SDK：运行时无关的 `on_main_thread(...).await`；停用时等待方收到 `MOD_DISABLED`。
-- 非 `Send` 闭包只在主线程析构的保证与测试。
-
-**验收**：`tokio` 示例模组反复 reload 100 次，无崩溃、无挂起的 future；内存增长只来自保留的镜像。
-
-## M4：表单、跨模组服务与扩展领域（未开始）
-
-- 表单（Simple / Modal / Custom）及其异步封装。
-- 服务注册总线：`ServiceHandle` + `ServiceGuard`，提供方停用时撤销并等待 guard 释放。
-- 按社区需求逐个通过 `query_interface` 增加领域子表（计分板、容器、方块、实体属性等），每个都遵循《新增领域 API 标准流程》。
-
-## M5（可选）：真正的热卸载（未开始）
-
-- 实现 `HOT_UNLOAD_SAFE` 路径：排空后检测线程是否仍在模组镜像内，安全时 `FreeLibrary`。
-- 只在 M1–M4 稳定运行一段时间、且确有内存回收需求时再做。
+- [ ] `HOT_UNLOAD_SAFE` 路径：排空后确认无线程在镜像内，再 `FreeLibrary`
+- [ ] 前提：M1 到 M4 稳定运行，且确有内存回收需求

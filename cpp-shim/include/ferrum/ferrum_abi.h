@@ -605,7 +605,7 @@ typedef struct FerrumHostApi {
 typedef uint32_t FerrumModFlags;
 #define FerrumModFlags_NONE 0
 /**
- * 模组声明自身可被 `FreeLibrary`（见线程规范 §4.4）。
+ * 模组声明自身可被 `FreeLibrary`（见 `docs/design/threading.md`）。
  */
 #define FerrumModFlags_HOT_UNLOAD_SAFE (1 << 0)
 
@@ -646,6 +646,10 @@ typedef struct FerrumModDescriptor {
  * `ferrum_mod_entry_v1` 的签名。
  *
  * 模组校验 `host_api` 后把描述符写入 `out_descriptor`。
+ *
+ * 容量协商：宿主调用前把 `out_descriptor.struct_size` 预填为缓冲区字节数；
+ * 模组最多写入 `min(预填值, 自身描述符大小)` 字节，并把实际写入量回填到 `struct_size`。
+ * 预填 `0` 视为 [`FERRUM_MOD_DESCRIPTOR_MIN_SIZE_V1_0`]（兼容不预填的旧宿主）。
  */
 typedef FerrumStatus (*ModEntryFnV1)(const struct FerrumHostApi *host_api,
                                      ModContextHandle mod_ctx,

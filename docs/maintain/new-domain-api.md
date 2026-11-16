@@ -1,116 +1,64 @@
-# 新增领域 API 标准流程
+# 新增领域 API
 
-当社区需要暴露新的游戏能力（例如新增“计分板读写”、“Boss 血条控制”或“容器物品槽位操作”）时，任何 PR **必须自底向上完整走完以下五步清单**，并逐项通过代码审查红线。
+每加一个 API，以后每次 MC / LeviLamina 升级都要多维护一个 shim 函数。只在需求明确、语义跨版本稳定时才加。
 
-> 每新增一个 API，都意味着今后每次 MC / LeviLamina 升级都要多维护一个 shim 函数。只有在“社区确有需求、语义跨版本稳定”时才新增。
+## 设计前先问
 
----
+- 底层是否必须在主线程？世界、实体、方块、容器几乎都是。SDK 方法要收 `&MainThreadToken<'_>` 或瞬态引用（如 `PlayerRef<'_>`）。
+- 对象用什么 ID 跨边界？用 `ActorRuntimeId` 之类的 ID 或宿主代数句柄。`ferrum-abi` 里不能出现游戏对象指针。
+- 参数有没有泄漏某个 MC 版本的内部细节？有就换成领域语义稳定的参数和 `#[repr(transparent)]` 码。
+- 会注册持久回调或后台资源吗？会就接入 `ModOwnership`，让 `disable` / `unload` 自动清理。
 
-## 步骤 1：领域建模与安全边界审查（Design Check）
+## 清单
 
-在动手写代码前，先回答以下四个问题：
-1. **线程归属**：底层 BDS 函数是否必须在主线程调用？
-   - 若是（99% 的世界/实体/方块/容器操作均是），SDK 暴露必须绑定 `MainThreadToken<'_>` 或瞬态借用引用（如 `PlayerRef<'_>`）。
-2. **生命周期与句柄选型**：目标对象以什么标识跨边界？返回的对象是瞬态引用还是需要跨 Tick 托管？
-   - 游戏对象一律以 ID（如 `ActorRuntimeId`）或宿主代数句柄跨边界，**严禁**任何形式的 C++ 对象指针出现在 `ferrum-abi` 中。
-   - 若该操作可能销毁目标对象或同步触发其他事件，确认 SDK 侧之后的调用会自然得到 `NotFound`。
-3. **跨版本抗脆弱性**：参数设计是否泄漏了当前某个 MC 小版本的内部实现细节（如直接暴露内部 `TypedStorage` 偏移或不稳定位掩码）？
-   - 必须抽象为领域语义稳定的参数与 `#[repr(transparent)]` 状态/类型码。
-4. **所有权归属**：若该 API 会注册持久回调或后台资源，是否已接入 `ModOwnership` 以便在 `disable`/`unload` 时自动清理？
+### 1. ferrum-abi
 
----
+- [ ] 在已有子表（如 `PlayerApiV1`）末尾追加函数指针。全新子系统则新建 `#[repr(C)]` 结构，首字段 `struct_size: u32`，并用新接口标识（如 `ferrum.scoreboard.v1`）经 `query_interface` 暴露。
+- [ ] 签名：`extern "C" fn(...) -> FerrumStatus`。字符串输入用 `FfiStr<'_>`，变长输出用 `*mut FfiByteWriter`，布尔用 `FfiBool`，枚举用 `#[repr(transparent)] struct XxxKind(pub u32)`。回调用强类型回调结构，不用 `*const c_void`。
+- [ ] 任何已发布子表尾追加字段，都递增 `crates/ferrum-abi/src/version.rs` 的 `FERRUM_ABI_MINOR`。
 
-## 步骤 2：在 `crates/ferrum-abi` 定义 C 契约
+### 2. layout_lock
 
-1. **决策挂载位置**：
-   - 若属于现有核心表（如给 `PlayerApiV1` 增加 `get_ping`），将新函数指针**追加在 `PlayerApiV1` 结构体的最末尾**。
-   - 若属于全新的独立子系统（如 `ScoreboardApiV1`），新建独立 `#[repr(C)]` 结构体（首字段 `pub struct_size: u32`），通过 `FerrumHostApi::query_interface("ferrum.scoreboard.v1", 0)` 暴露（或在根表尾部追加并递增 `AbiVersion.minor`）。
-2. **签名自检**：
-   - 所有函数指针显式标注 `extern "C" fn(...) -> FerrumStatus`；
-   - 字符串输入用 `FfiStr<'_>`，变长输出用 `*mut FfiByteWriter`；
-   - 布尔值用 `FfiBool`，封闭 `enum` 一律改为 `#[repr(transparent)] pub struct XxxKind(pub u32);`；
-   - 回调使用该类别专属的强类型回调结构体，不使用 `*const c_void` 存放函数指针。
-3. **更新布局锁与 C 头文件**：
-   - 在 `crates/ferrum-abi/src/version.rs` 中递增 `FERRUM_ABI_MINOR`；
-   - 若新增了类型或尾追加了字段，在 `xtask/src/layout_lock.rs` 登记后运行 `cargo xtask layout-lock` 追加断言，确认旧字段偏移一字未改；
-   - 运行 `cargo xtask cbindgen` 重新生成 `cpp-shim/include/ferrum/ferrum_abi.h`，与 ABI 改动一并提交。
+- [ ] 在 `xtask/src/layout_lock.rs` 里为新类型和新字段加 `lock!(...)`。
+- [ ] 运行 `cargo xtask layout-lock`。只追加到 `crates/ferrum-abi/tests/layout_lock.rs`，确认旧行没有被改。
 
----
+### 3. cbindgen
 
-## 步骤 3：在 `cpp-shim/` 实现薄 C++20 垫片
+- [ ] 新子表要出现在 C 头里，就把类型名加到 `xtask/src/cbindgen_gen.rs` 的 `export.include`。
+- [ ] 运行 `cargo xtask cbindgen`，把生成的 `cpp-shim/include/ferrum/ferrum_abi.h` 一起提交。不要手写 C++ 镜像结构。
 
-在 `cpp-shim/src/<domain>_shim.cpp` 中编写 `extern "C"` 导出给 `ferrum-host` 的内部桥接函数（类型来自 cbindgen 生成的 `ferrum/ferrum_abi.h`）：
+### 4. cpp-shim
 
-```cpp
-static FerrumStatus shimPlayerGetPing(
-    FerrumActorRuntimeId target,
-    int32_t*             outPingMs
-) noexcept {
-    if (!outPingMs) {
-        return FerrumStatus_NULL_POINTER;
-    }
-    try {
-        // 每次调用按 ID 重新解析，指针只在本函数体内存活
-        auto* player = ferrum::shim::resolvePlayer(target);
-        if (!player) {
-            return FerrumStatus_NOT_FOUND;
-        }
-        // 调用 LeviLamina / BDS 稳定接口
-        auto netId = player->getNetworkIdentifier();
-        if (auto peer = ll::service::getRakPeer(); peer) {
-            *outPingMs = peer->GetAveragePing(netId.mGuid);
-            return FerrumStatus_OK;
-        }
-        return FerrumStatus_SERVICE_UNAVAILABLE;
-    } catch (...) {
-        ferrum::shim::setLastErrorFromCurrentException();
-        return FerrumStatus_CPP_EXCEPTION;
-    }
-}
-```
+在 `cpp-shim/src/ferrum/DomainApi.cpp`（或同目录新文件）里实现，并在 `installDomainApi` 里填入 `FerrumShimApi`。
 
-**Shim 审查红线**：
-- 函数必须标记 `noexcept` 并由 `try / catch (...)` 兜底；
-- 游戏对象指针只能在单次函数体内由 ID 解析得到，严禁缓存到静态变量或返回给 `ferrum-host`；
-- 若调用了任何带 `std::weak_ptr<ll::mod::Mod> = NativeMod::current()` 默认参数的 LeviLamina 接口，**必须显式传入目标二级模组的 `weak_ptr`**！
+- [ ] 函数标 `noexcept`，外层包 `guarded(...)`（`try / catch (...)`，返回 `CPP_EXCEPTION` 并写 last-error）。
+- [ ] 对象指针每次按 ID 重新解析，只活在本函数体内。解析不到返回 `NOT_FOUND`。不要缓存，不要返回给 `ferrum-host`。
+- [ ] 调用带 `std::weak_ptr<mod::Mod> = NativeMod::current()` 默认参数的 LeviLamina 接口时，显式传入目标模组的 `weak_ptr`。
+- [ ] 只有这个目录可以 `#include` `ll/api/*` 和 `mc/*`。
 
----
+### 5. ferrum-host
 
-## 步骤 4：在 `crates/ferrum-host` 装配 VTable 与校验
+- [ ] 在 `crates/ferrum-host/src/shim.rs` 的 `FerrumShimApi` 末尾追加字段或子表。
+- [ ] 在 `crates/ferrum-host/src/` 新增或扩展领域文件（参照 `player.rs`）：用 `vtable::guard(|| ...)` 包裹，检查 `vtable::is_main_thread()`，经 `shim::get()` 调 shim，错误用 `last_error::fail` 写详情。
+- [ ] 新接口标识要在 `vtable.rs` 的 `query_interface` 里挂上。
+- [ ] 注册持久资源（命令、监听器等）：记入 `ModOwnership`，并在 `command::revoke` / `event::revoke` / `custom_event::revoke` 同级的 revoke 路径里撤销。
+- [ ] 新的"宿主调模组回调"路径：用 `loader::Invocation::begin(ctx, entry)` 守卫计数，不要手写 `active_invocations += 1` / `-= 1`。守卫保证宿主 panic 时计数也配平，推迟的停用才能完成。回调对象（`Arc`/`Rc`）必须在守卫之后声明或重新绑定（`let cb = cb;`），panic 展开时才会先释放回调、再结束计数。自定义事件那条链用 `custom_event_core.rs` 的 `Active`。
+- [ ] 调模组回调前不持有宿主锁。
 
-1. 在 `crates/ferrum-host/src/shim.rs` 的 `FerrumShimApi` 末尾追加对应函数指针字段（并在 `cpp-shim/src/ferrum/FerrumModManager.cpp` 的 `shimApi` 中注入实现，同步更新 `cargo xtask cbindgen`）。同时在 `crates/ferrum-host-mock` 中补充该函数的假实现，供下游模组测试使用。
-2. 在 `crates/ferrum-host/src/vtable.rs` 的 VTable 实现函数中以 `guard(|| ...)` 包裹并完成：
-   - 主线程断言（`vtable::is_main_thread()`）；
-   - 代数句柄查表与归属校验（若涉及句柄）；
-   - 通过 `shim::get()` 回调 C++ 垫片，并将错误详情存入当前线程 `LastErrorSlot`（`last_error::fail`）。
-3. 将该函数挂载到静态全局子表（如 `CORE_V1` 或对应领域子表）的新槽位上。
+### 6. ferrum-sdk
 
----
+- [ ] 在 `crates/ferrum-sdk/src/host.rs` 用 `domain_api!` 登记新槽位名和函数指针类型。访问器会检查槽位偏移，不构造整表引用。槽位不存在时方法返回 `UNSUPPORTED`，旧 API 不受影响。
+- [ ] 在对应模块里封装安全方法：不暴露裸指针、`FfiByteWriter`、状态码，失败用 `host::check` 或 `error_from_status` 转成 `Error`。
+- [ ] 回调类 API：用 HRTB 签名，`FnMut` 跳板带 `in_call` 重入守卫和 `poisoned`，过 `firewall`。参照 `events.rs`。
+- [ ] 文档注释写明最低 ABI 版本。
 
-### 4. 安全注释规范（`unsafe` 块）
-- `ferrum-sdk` 与 `ferrum-host` 中每一处 `unsafe { ... }` 块上方**必须**附带 `// SAFETY: ...` 注释（workspace lint 已启用 `undocumented_unsafe_blocks = "deny"` 与 `unsafe_op_in_unsafe_fn = "deny"`），逐条论证指针非空性、对齐、生命周期边界、线程归属与别名独占性不变式。
+### 7. mock
 
----
+- [ ] 在 `crates/ferrum-host-mock/src/` 实现假函数，在 `lib.rs` 的 `query_interface` 里挂上。
+- [ ] 给 `MockHost` 加测试用的 setter 和 getter。
 
-## 步骤 5：在 `crates/ferrum-sdk` 封装安全 Rust 接口
+### 8. 文档与验证
 
-在 `ferrum-sdk` 中隐藏所有裸指针、`FfiByteWriter` 和状态码转换细节，暴露零 `unsafe` 的地道 Rust 方法，并标注最低所需 ABI 次版本说明：
-
-在 `host.rs` 对应的 `domain_api!` 声明中登记新槽位名与 ABI 函数指针类型。生成的访问器会检查该槽位的偏移和类型大小，再从原始子表读取函数指针；不会创建完整新版表引用。每个领域的查询结果（含接口缺失、无效表头）独立缓存，新增尾部槽位不影响旧槽位使用。下面假设已登记 `get_ping` 槽位：
-
-```rust
-impl<'a> PlayerRef<'a> {
-    /// 获取玩家当前网络平均延迟（毫秒）。
-    pub fn ping_ms(&self) -> Result<i32> {
-        // 槽位不存在时返回 UNSUPPORTED，已有的玩家 API 仍然可用。
-        let get_ping = host::player_api()?.get_ping()?;
-
-        let mut out_ping: i32 = 0;
-        let status = get_ping(self.runtime_id(), &mut out_ping);
-        host::check(status)?;
-        Ok(out_ping)
-    }
-}
-```
-
-> **安全注释铁律**：`ferrum-sdk` 和 `ferrum-host` 中出现的每一处 `unsafe { ... }` 块，上方**必须**附带 `// SAFETY: ...` 注释，逐条论证指针非空性、对齐、生命周期边界、线程归属与别名独占性不变式。
+- [ ] 更新 [../design/abi.md](../design/abi.md) 的接口列表、[../guide/sdk.md](../guide/sdk.md) 和 [../roadmap.md](../roadmap.md)。
+- [ ] 跑 [build.md](build.md) 里的 5 条纯 Rust 检查。
+- [ ] 每个 `unsafe` 块上方写 `// SAFETY:`。workspace lint 对缺失会报错。

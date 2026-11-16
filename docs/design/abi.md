@@ -1,97 +1,33 @@
-# ABI 稳定性与 VTable 演进铁律
+# ABI 规则
 
-本文档定义 `crates/ferrum-abi` 的二进制接口规范。**本规范中的每一条规则均为不可妥协的铁律**——任何破坏性修改都会导致已发布的下游 Rust 模组在新版 `ferrum-loader` 上直接发生内存访问违例（Access Violation）。
+范围：`crates/ferrum-abi`。已发布模组直接按这些布局访问宿主内存，违反任何一条都会导致访问违例。
 
----
+## 1. 允许与禁止的类型
 
-## 1. 跨 DLL 边界类型白名单与黑名单
+禁止出现在 `ferrum-abi` 的公开字段、参数、返回值中：
 
-### 1.1 严禁跨越边界的类型（Blacklisted Types）
-以下类型内存布局不受稳定保证、取值域不受接收方控制，或隐含特定分配器契约，**严禁**出现在 `ferrum-abi` 的任何公开结构体字段或函数指针参数/返回值中：
-- 任何默认 `repr(Rust)` 的结构体、元组或枚举。
-- Rust 标准库与生态容器：`String`、`&str`、`Vec<T>`、`&[T]`、`Box<T>`、`Arc<T>`、`Result<T, E>`、除 `Option<extern "C" fn>` / `Option<NonZero*>` 以外的任何 `Option<T>`。
-- 胖指针与动态分发对象：`&dyn Trait`、`*const dyn Trait`、`fn(...)`（未标注 `extern "C"` 的默认 Rust 调用约定函数指针）。
-- Rust 原生 `bool` 与封闭 `enum`：C++ 侧写入的非 `0`/`1` 字节或未知判别值会在 Rust 侧立即构成 UB。
-- 任何 C++ 标准库或 LeviLamina 类型：`std::string`、`std::string_view`、`std::function`、`std::shared_ptr`、`ll::Expected`、`mc/*` 类对象。
-- 任何指向游戏对象的指针（`Actor*`、`Player*` 及其不透明包装）。游戏对象一律以 ID 或宿主代数句柄跨边界，见《句柄与游戏对象标识规范》。
+- 默认 `repr(Rust)` 的结构体、元组、枚举。
+- `String`、`&str`、`Vec`、`&[T]`、`Box`、`Arc`、`Result`，以及 `Option<extern "C" fn>` / `Option<NonZero*>` 之外的 `Option`。
+- `dyn Trait`、未标 `extern "C"` 的函数指针。
+- Rust 原生 `bool` 和封闭 `enum`。C++ 写入其他取值即 UB。
+- C++/LL 类型：`std::string`、`std::function`、`shared_ptr`、`ll::Expected`、`mc/*` 对象。
+- 游戏对象指针（`Actor*` 等）。见 [handles.md](handles.md)。
 
-### 1.2 允许跨越边界的原语（Whitelisted Primitives）
-`ferrum-abi` 仅允许由以下确定性布局类型组合而成：
-- 固定位宽数值：`u8`, `i8`, `u16`, `i16`, `u32`, `i32`, `u64`, `i64`, `usize`, `isize`, `f32`, `f64`。
-- 布尔值统一使用 `FfiBool`：
-  ```rust
-  #[repr(transparent)]
-  #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-  pub struct FfiBool(pub u8); // 0 = false，任何非 0 值 = true
-  ```
-- 枚举/种类值统一使用 `#[repr(transparent)] pub struct FooKind(pub u32);` 搭配关联常量。SDK 解码时**必须**把未知值映射为 `Unknown(u32)` / `Other(u32)`，不得 `transmute` 为封闭 Rust `enum`。
-- 裸数据指针：`*const T` / `*mut T`（`T` 为本节允许的类型）、`*mut c_void`（仅用于回调上下文 `env`/`context`）。
-- 显式声明调用约定的函数指针：`extern "C" fn(...) -> ...` 及 `Option<extern "C" fn(...) -> ...>`（空指针优化 NPO，保证与 C 函数指针等宽）。
-- `NonZeroU64` 等 `NonZero*` 及其 `Option`（用于代数句柄）。
-- 标注了 `#[repr(C)]` 的结构体，且字段均满足本节约束；`PhantomData` 零大小字段允许出现（用于 `FfiStr<'a>` 等生命周期标记）。
+允许：
 
----
+- 定宽整数、`f32`、`f64`、`usize`。
+- `FfiBool(u8)`：0 为假，非 0 为真。
+- 枚举值用 `#[repr(transparent)] struct FooKind(pub u32)` 加关联常量。SDK 解码未知值时映射为 `Unknown(u32)` / `Other(u32)`，不能 `transmute`。
+- `*const T` / `*mut T`（`T` 满足本节），`*mut c_void`（仅作回调 `env` / `context`）。
+- `extern "C" fn` 与 `Option<extern "C" fn>`。
+- `NonZeroU64` 及其 `Option`（代数句柄）。
+- `#[repr(C)]` 结构体，字段均满足本节。`PhantomData` 可用作生命周期标记。
 
-## 2. 单点注入入口与双向版本握手协议
+## 2. 入口与握手
 
-下游模组 `.dll` **不导入任何宿主 DLL 符号**（零导入表耦合），唯一导出一个固定名称的 C 函数入口 `ferrum_mod_entry_v1`（后缀 `v1` 即 ABI 主版本号）：
+模组 DLL 不导入宿主符号，只导出一个函数 `ferrum_mod_entry_v1`。后缀 `v1` 是 ABI 主版本；破坏性变更必须换新符号。
 
 ```rust
-pub const FERRUM_ABI_MAGIC: u64 = 0x4645_5252_554D_4142; // "FERRUMAB"
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct AbiVersion {
-    pub major: u16,
-    pub minor: u16,
-    pub patch: u32,
-}
-
-/// 宿主在加载模组时传入的全局根表（进程级静态生命周期 'static）
-#[repr(C)]
-pub struct FerrumHostApi {
-    pub struct_size: u32,
-    pub reserved_flags: u32,
-    pub magic: u64,
-    pub host_abi_version: AbiVersion,
-
-    // v1.0 核心基础子表（指针恒非空）
-    pub core_v1: *const CoreApiV1,           // last-error、panic 上报、模组元数据与目录、线程判定
-    pub log_v1: *const LogApiV1,
-
-    /// 按接口标识与最小次版本动态查询扩展子表（见 §3 第 5 条）；未找到返回空指针
-    pub query_interface: extern "C" fn(
-        interface_id_utf8: FfiStr<'_>,
-        min_minor: u16,
-    ) -> *const core::ffi::c_void,
-    // 后续 minor 版本可在末尾追加领域子表（或统一通过 query_interface 暴露）
-}
-
-#[repr(transparent)]
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub struct FerrumModFlags(pub u32);
-
-impl FerrumModFlags {
-    pub const NONE: Self = Self(0);
-    /// 模组声明自身可被 FreeLibrary（见《线程模型、并发与热卸载安全规范》§4.4）
-    pub const HOT_UNLOAD_SAFE: Self = Self(1 << 0);
-}
-
-/// 模组向宿主回填的生命周期回调描述符
-#[repr(C)]
-pub struct FerrumModDescriptor {
-    pub struct_size: u32,
-    pub flags: FerrumModFlags,
-    /// 模组运行所需的最低宿主 ABI 版本（见“握手校验流程”第 3 步）
-    pub required_abi_version: AbiVersion,
-    /// 编译该模组所用的 ferrum-sdk 版本，仅用于诊断日志
-    pub sdk_version: AbiVersion,
-    pub on_load: extern "C" fn(mod_ctx: ModContextHandle) -> FerrumStatus,
-    pub on_enable: Option<extern "C" fn(mod_ctx: ModContextHandle, token: RawMainThreadToken) -> FerrumStatus>,
-    pub on_disable: Option<extern "C" fn(mod_ctx: ModContextHandle, token: RawMainThreadToken) -> FerrumStatus>,
-    pub on_unload: Option<extern "C" fn(mod_ctx: ModContextHandle) -> FerrumStatus>,
-}
-
 pub type ModEntryFnV1 = unsafe extern "C" fn(
     host_api: *const FerrumHostApi,
     mod_ctx: ModContextHandle,
@@ -99,77 +35,76 @@ pub type ModEntryFnV1 = unsafe extern "C" fn(
 ) -> FerrumStatus;
 ```
 
-- `ModContextHandle` 是宿主代数句柄，宿主据此识别调用方模组，并在每次调用时校验其归属。
-- `RawMainThreadToken` 为 ABI 层零大小占位（`#[repr(C)] struct RawMainThreadToken { _reserved: u8 }` 按值传递），仅作为“此调用发生在主线程”的显式证明；SDK 在跳板中将其转换为 `&MainThreadToken<'tick>`。
+数据结构（定义在 `host_api.rs`、`module.rs`）：
 
-### 握手校验流程（Handshake Rules）
-1. `ferrum-host` 加载模组 `.dll` 后查找符号 `ferrum_mod_entry_v1`；若不存在则拒绝加载并给出清晰诊断。
-2. 模组入口（由 `#[ferrum_sdk::mod_entry]` 自动生成，整体包裹 `catch_unwind`）验证宿主：
-   - `!host_api.is_null()` 且 `(*host_api).magic == FERRUM_ABI_MAGIC`；
-   - `(*host_api).struct_size >= FERRUM_HOST_API_MIN_SIZE_V1_0`；
-   - `host.major == FERRUM_ABI_MAJOR`；
-   - `core_v1` / `log_v1` 非空且各自 `struct_size` 满足 `CORE_API_MIN_SIZE_V1_0` / `LOG_API_MIN_SIZE_V1_0`。
-   校验失败返回 `FerrumStatus::ABI_INCOMPATIBLE`。
-3. 宿主验证模组回填的描述符：
-   - `descriptor.struct_size >= FERRUM_MOD_DESCRIPTOR_MIN_SIZE_V1_0`；
-   - `required.major == host.major`，否则拒绝加载（不兼容代际）；
-   - `required.minor <= host.minor`，否则拒绝加载并提示“该模组需要 ferrum-loader ABI ≥ 1.x，请升级 ferrum-loader”。
-4. 校验通过后，SDK 将 `host_api` 存入模组内部的 `OnceLock<&'static FerrumHostApi>`。
+| 结构 | 内容 |
+| :--- | :--- |
+| `FerrumHostApi` | `struct_size`、`reserved_flags`、`magic`（`"FERRUMAB"`）、`host_abi_version`、`core_v1`、`log_v1`、`query_interface` |
+| `FerrumModDescriptor` | `struct_size`、`flags`、`required_abi_version`、`sdk_version`、`on_load`、`on_enable`、`on_disable`、`on_unload` |
 
-### `required_abi_version` 的取值规则（按需而非按 SDK 版本）
-- **严禁**把 `required_abi_version` 直接设为编译时 SDK 所对应的 ABI 版本。否则用新 SDK 编译、实际只用到 `v1.0` 函数的模组，会被旧宿主无谓拒绝。
-- 默认值为 `ferrum-sdk` 核心功能（生命周期、日志、错误上报）所需的最低 minor，通常为 `1.0`。
-- 模组使用了更高 minor 才引入的 API 时，SDK 在**调用时**检查对应子表 `struct_size`，宿主过旧则返回 `Err(Unsupported)`，模组可自行降级。
-- 若模组希望在加载阶段就快速失败，可显式声明：`#[ferrum_sdk::mod_entry(min_abi = "1.3")]`。
+- `core_v1` / `log_v1` 恒非空。领域子表（actor、player、event 等）一律通过 `query_interface` 取得。
+- `flags` 目前只有 `HOT_UNLOAD_SAFE`。
+- `RawMainThreadToken` 是按值传递的占位结构，只表示“此调用在主线程”。SDK 把它转成 `&MainThreadToken<'tick>`。
+- `ModContextHandle` 是宿主分配的代数句柄，宿主据此识别调用方。
 
----
+握手步骤：
 
-## 3. VTable 演进五大铁律（Evolution Laws）
+1. 宿主加载 DLL 后查找 `ferrum_mod_entry_v1`。找不到则以 `ABI_INCOMPATIBLE` 拒绝。
+2. 宿主准备描述符缓冲区（见下“描述符容量协商”），调用入口。
+3. 模组入口（`#[mod_entry]` 生成，外层 `catch_unwind`）校验宿主，任一项失败返回 `ABI_INCOMPATIBLE`：
+   - `host_api` 非空且 `magic == FERRUM_ABI_MAGIC`；
+   - `struct_size >= FERRUM_HOST_API_MIN_SIZE_V1_0`；
+   - `host_abi_version.major == FERRUM_ABI_MAJOR`；
+   - `core_v1`、`log_v1` 非空，`struct_size` 不小于 `CORE_API_MIN_SIZE_V1_0` / `LOG_API_MIN_SIZE_V1_0`。
+4. 模组把 `host_api` 存入全局，写描述符。
+5. 宿主校验描述符，任一项失败返回 `ABI_INCOMPATIBLE`：
+   - `struct_size` 在 `[FERRUM_MOD_DESCRIPTOR_MIN_SIZE_V1_0, 缓冲区容量]` 内；
+   - `required.major == host.major`；
+   - `required.minor <= host.minor`，否则提示升级 `ferrum-loader`。
 
-每一个领域子表（如 `PlayerApiV1`、`WorldApiV1`）都必须严格遵守以下演进规范：
+### 描述符容量协商
 
-1. **首字段 `struct_size: u32` 强制原则**
-   - 所有可扩展的公开 `#[repr(C)]` 结构体（VTable、通过指针传递的配置项与事件载荷）第一个字段**必须**是 `pub struct_size: u32`（值为 `size_of::<Self>() as u32`）。
-   - 读取方在访问函数指针字段前，必须检查 `struct_size as usize >= offset_of!(Table, field) + size_of::<FieldType>()`。SDK 统一由类型化槽位访问器调用 `require_field(offset, size, diagnostic)`，通过后才用原始指针读取该字段。不得先构造完整新版表引用，或以 `&table.field` 取得尚未确认存在的字段大小；也不得以当前 SDK 的整表大小拒绝仍有可用旧槽位的宿主。
-   - SDK 按接口独立使用 `OnceLock` 懒缓存原始子表指针和 `struct_size`，同时缓存接口缺失、无效表头的查询结果。缓存仅适用于宿主保证进程生命周期内不可变的接口表；调用时仍按所需槽位检查边界，缺少尾部字段只让对应方法返回 `UNSUPPORTED`。
-   - 按值传递的冻结结构体（见第 3 条）不需要 `struct_size`。
-2. **只增不改、只尾追加（Append-Only）**
-   - 在同一个主版本（如 `major = 1`）生命周期内，已发布子表中的任何既有字段：**严禁删除、严禁重排顺序、严禁修改函数签名或参数语义**。
-   - 新增 API 函数指针只能追加在对应 VTable 结构体的**最末尾**，同时递增 `AbiVersion.minor`。
-3. **结构体按值传参冻结原则**
-   - 若某个 `#[repr(C)]` 数据结构体以**按值（by-value）**或**数组切片元素（`FfiSlice<Item>`）**传递（如 `BlockPos`、`Vec3`、各类 ID），其总大小与对齐在首次发布后**永久冻结**（不可尾追加字段，否则数组步长改变会破坏指针算术）。
-   - 需要未来扩展字段的参数/事件数据，**必须通过指针传递（`*const OptionsV1`）配合首字段 `struct_size`**，或通过句柄 + Getter 函数暴露。
-4. **安全废弃机制（Deprecation without Removal）**
-   - 若某个旧 VTable 槽位因游戏大改无法再实现，**严禁删除该指针槽位或将其置为空指针**（旧模组调用会导致空指针解引用崩溃）。
-   - 宿主必须保留一个合法的桩函数（Stub Function），在被调用时记录一次限频警告日志并返回 `FerrumStatus::UNSUPPORTED` 或安全默认值。
-5. **扩展接口动态查询（`query_interface`）**
-   - 对于实验性功能、平台特定扩展或全新的独立领域模块（如计分板 `ferrum.scoreboard.v1`、粒子系统 `ferrum.particle.v1`），优先通过 `FerrumHostApi::query_interface` 按 ASCII 接口标识查询，避免根表无节制膨胀。
-   - 返回的子表同样遵守本节第 1、2、4 条；接口标识中的 `vN` 即该子表的主版本，破坏性变更必须使用新标识（如 `ferrum.scoreboard.v2`）并保留旧标识的实现。
+描述符以后会尾追加字段。新旧宿主与新旧模组靠容量协商互通：
 
----
+- 宿主把缓冲区清零，并把 `struct_size` 预填为缓冲区字节数（`size_of::<FerrumModDescriptor>()`）。
+- 模组读预填值：`0` 视为 v1.0 大小（兼容不预填的旧宿主）；小于 v1.0 大小则返回 `ABI_INCOMPATIBLE`。
+- 模组写 `min(预填值, 自身描述符大小)` 字节，并把实际写入量回填到 `struct_size`。
+- 模组没写到的尾部字段保持为零。**新增描述符字段必须以 0 作为合法默认值。**
 
-## 4. 编译期静态断言与 CI 门禁
+### `required_abi_version`
 
-在 `crates/ferrum-abi/tests/layout_lock.rs` 中，必须对所有已发布的 VTable 和固定大小结构体建立**编译期大小与字段偏移锁**：
+- 取模组实际需要的最低版本，默认 `1.0`。不要取编译时 SDK 的 ABI 版本，否则只用 v1.0 功能的模组会被旧宿主拒绝。
+- 模组用到更高 minor 的 API 时，SDK 在调用时检查子表 `struct_size`。宿主过旧则该调用返回 `UNSUPPORTED`，模组可降级。
+- 想在加载期就失败：`#[ferrum_sdk::mod_entry(min_abi = "1.3")]`。
 
-```rust
-const _: () = {
-    assert!(core::mem::size_of::<AbiVersion>() == 8);
-    assert!(core::mem::align_of::<AbiVersion>() == 4);
-    assert!(core::mem::offset_of!(FerrumHostApi, magic) == 8);
-};
-```
+## 3. 演进规则
 
-- 任何 PR 若修改了既有字段偏移量，静态断言直接编译失败。
-- 每次递增 `minor` 版本时，仅允许增加总 `size_of` 并追加新的 `offset_of!` 断言，绝不允许修改已有行的断言数值。
-- 断言文件**应当**由 `cargo xtask layout-lock` 根据 `ferrum-abi` 自动追加生成，生成器只追加、从不改写既有行；CI 校验工作区中的文件与生成结果一致。
+适用于每个 `#[repr(C)]` 子表（`PlayerApiV1` 等）。
 
----
+1. **首字段 `struct_size: u32`。** 通过指针传递、可扩展的结构（VTable、选项、载荷）首字段必须是 `struct_size`，值为 `size_of::<Self>()`。
+   - 读取方访问字段前必须检查 `struct_size >= offset_of!(T, field) + size_of::<Field>()`。
+   - SDK 用 `domain_api!` 生成的槽位访问器（`require_field`）：先检查边界，再用 `addr_of!` 读字段。不构造整表引用，也不因整表比 SDK 新而拒绝仍有可用槽位的旧宿主。
+   - SDK 对每个接口用 `OnceLock` 缓存子表指针和 `struct_size`（包括查询失败的结果）。缺少尾部字段时，只有对应方法返回 `UNSUPPORTED`。
+2. **只尾追加。** 同一主版本内，已发布字段不得删除、重排、改签名或改语义。新增函数指针只能放在结构末尾，并递增 `FERRUM_ABI_MINOR`（当前 1）。
+3. **按值传递的结构冻结。** 按值或作为 `FfiSlice<T>` 元素传递的结构（`BlockPos`、`Vec3`、各种 ID）大小与对齐发布后不可变，不需要 `struct_size`。需要扩展的数据改为指针加 `struct_size`，或句柄加 getter。
+4. **废弃不删除。** 槽位无法再实现时，不能删除或置空。宿主保留桩函数，返回 `UNSUPPORTED` 或安全默认值。
+5. **`query_interface` 取扩展接口。** 新领域用接口标识（如 `ferrum.event.v1`）查询，避免根表膨胀。标识中的 `vN` 是该子表主版本；破坏性变更用新标识并保留旧实现。子表同样遵守第 1、2、4 条。
 
-## 5. C/C++ 头文件单一事实来源（cbindgen）
+当前宿主已提供：`ferrum.actor.v1`、`ferrum.mob.v1`、`ferrum.block.v1`、`ferrum.player.v1`、`ferrum.command.v1`、`ferrum.event.v1`、`ferrum.custom_event.v1`、`ferrum.custom_event_publisher.v1`。宿主目前只在 `min_minor == 0` 时返回子表，其他值返回空指针。
 
-`cpp-shim` 需要与 Rust 共享 `FerrumStatus`、`FfiStr`、`FfiByteWriter`、`FfiCallback`、各类 ID 与 `ferrum-host`↔`cpp-shim` 内部函数签名。**严禁在 C++ 侧手写镜像结构体**：
+## 4. 布局锁
 
-- 由 `cargo xtask cbindgen` 从 `crates/ferrum-abi` 与 `crates/ferrum-host/src/shim.rs` 生成 `cpp-shim/include/ferrum/ferrum_abi.h`；
-- 生成的头文件纳入版本控制，通过 `cargo xtask cbindgen --check`（以及 `cargo xtask layout-lock --check`）校验未被手改、未过期；
-- `cpp-shim` 中可额外使用 `static_assert(sizeof(...) == N)` 交叉校验关键结构体大小，数值与 `layout_lock.rs` 保持一致。
+`crates/ferrum-abi/tests/layout_lock.rs` 为每个已发布类型锁定 `size_of`、`align_of` 和字段 `offset_of`。
+
+- 改动既有偏移会让该测试编译失败。
+- 追加字段时只能增加总大小并追加新断言，不能改已有行。
+- 文件由 `cargo xtask layout-lock` 生成，只追加不改写。新类型要在 `xtask/src/layout_lock.rs` 的 `assertions()` 登记。
+- CI 运行 `cargo xtask layout-lock --check`。
+
+## 5. C 头文件
+
+`cpp-shim/include/ferrum/ferrum_abi.h` 由 `cargo xtask cbindgen` 从 `ferrum-abi` 和 `ferrum-host/src/shim.rs` 生成。
+
+- 不要在 C++ 侧手写镜像结构。
+- 头文件纳入版本控制，CI 运行 `cargo xtask cbindgen --check` 确认未手改、未过期。
+- 新增需要导出到头文件的类型，要加进 `xtask/src/cbindgen_gen.rs` 的 `export.include`。
