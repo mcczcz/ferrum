@@ -1,10 +1,10 @@
-//! 玩家与命令的纯 Rust 假实现；命令参数由调用方传入已解析的值。
-use super::{MockHost, MockModState, check, is_main_thread, with_mod};
+//! 假 shim 的世界数据与命令解析；回调所有权和派发由 ferrum-host 管理。
+use super::{MockHost, check, is_main_thread};
 use ferrum_abi::*;
+use ferrum_host::shim::ShimModCookie;
 use ferrum_sdk::Error;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub struct MockPlayer {
@@ -87,43 +87,18 @@ struct OnlinePlayer {
     messages: Vec<String>,
     state: MockPlayerState,
 }
+#[derive(Clone)]
 struct Command {
-    owner: ModContextHandle,
+    cookie: ShimModCookie,
     name: String,
     permission: CommandPermission,
     params: Vec<(String, CommandParamKind, bool)>,
-    callback: CommandCallbackV1,
-}
-impl Drop for Command {
-    fn drop(&mut self) {
-        (self.callback.drop_fn)(self.callback.env);
-    }
 }
 struct Scope {
-    owner: ModContextHandle,
     origin: Option<ActorRuntimeId>,
     args: BTreeMap<String, MockCommandValue>,
     params: Vec<(String, CommandParamKind, bool)>,
     output: MockCommandOutput,
-}
-struct Listener {
-    owner: ModContextHandle,
-    kind: EventKind,
-    priority: EventPriority,
-    callback: EventCallbackV1,
-    warned_reentrant: Cell<bool>,
-}
-impl Drop for Listener {
-    fn drop(&mut self) {
-        (self.callback.drop_fn)(self.callback.env);
-    }
-}
-struct EventScope {
-    owner: ModContextHandle,
-    kind: EventKind,
-    player: ActorRuntimeId,
-    message: Option<String>,
-    cancelled: bool,
 }
 #[derive(Default)]
 struct Domain {
@@ -132,44 +107,41 @@ struct Domain {
     blocks: BTreeMap<(i32, i32, i32, i32), String>,
     block_types: BTreeMap<String, BlockRuntimeId>,
     loaded_chunks: Vec<(i32, i32, i32)>,
-    commands: BTreeMap<u64, Rc<Command>>,
+    commands: BTreeMap<u64, Command>,
     scopes: BTreeMap<u64, Scope>,
-    listeners: BTreeMap<u64, Rc<Listener>>,
-    event_scopes: BTreeMap<u64, EventScope>,
     serial: u32,
     next_player: u64,
     custom_dimensions: Vec<DimensionId>,
-    active: BTreeMap<u64, usize>,
-    pending: Vec<ModContextHandle>,
 }
 thread_local! { static DOMAIN: RefCell<Domain> = RefCell::new(Domain::default()); }
 
-include!("event_impl.rs");
-
-fn guard(f: impl FnOnce() -> FerrumStatus) -> FerrumStatus {
+pub(super) fn guard(f: impl FnOnce() -> FerrumStatus) -> FerrumStatus {
     if !is_main_thread().get() {
-        return FerrumStatus::WRONG_THREAD;
+        return ferrum_host::last_error::fail(
+            FerrumStatus::WRONG_THREAD,
+            "假 shim 必须在主线程调用",
+        );
     }
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(s) => s,
         Err(p) => {
             std::mem::forget(p);
-            FerrumStatus::INTERNAL_ERROR
+            ferrum_host::last_error::fail(FerrumStatus::INTERNAL_ERROR, "假 shim 内部 panic")
         }
     }
 }
-fn text(s: FfiStr<'_>) -> String {
+pub(super) fn text(s: FfiStr<'_>) -> String {
     // SAFETY: SDK 提供本次同步调用内有效的借用字节。
     String::from_utf8_lossy(unsafe { s.as_bytes() }).into_owned()
 }
-fn write(out: *mut FfiByteWriter, bytes: &[u8]) -> FerrumStatus {
+pub(super) fn write(out: *mut FfiByteWriter, bytes: &[u8]) -> FerrumStatus {
     // SAFETY: 调用方保证 out 为空或为本次调用内的有效 writer。
     match unsafe { out.as_ref() } {
         Some(w) => w.write(bytes),
         None => FerrumStatus::NULL_POINTER,
     }
 }
-fn put<T>(out: *mut T, value: T) -> FerrumStatus {
+pub(super) fn put<T>(out: *mut T, value: T) -> FerrumStatus {
     if out.is_null() {
         return FerrumStatus::NULL_POINTER;
     }
@@ -543,29 +515,13 @@ pub(super) static BLOCK: BlockApiV1 = BlockApiV1 {
     is_air: block_air,
     set_type: block_set_type,
 };
-fn enabled(ctx: ModContextHandle) -> Result<(), FerrumStatus> {
-    with_mod(ctx, |m| {
-        matches!(m.state, MockModState::Enabling | MockModState::Enabled)
-    })
-    .and_then(|ok| {
-        if ok {
-            Ok(())
-        } else {
-            Err(FerrumStatus::MOD_DISABLED)
-        }
-    })
-}
-extern "C" fn register(
-    ctx: ModContextHandle,
+pub(super) extern "C" fn register(
+    cookie: ShimModCookie,
+    handle: CommandHandle,
     def: *const CommandDefinitionV1<'_>,
-    callback: CommandCallbackV1,
-    out: *mut CommandHandle,
 ) -> FerrumStatus {
     guard(|| {
-        if let Err(s) = enabled(ctx) {
-            return s;
-        }
-        if out.is_null() || def.is_null() {
+        if def.is_null() {
             return FerrumStatus::NULL_POINTER;
         }
         // SAFETY: def 指向 ABI 调用方提供的同步借用描述头，先读取 struct_size。
@@ -594,7 +550,7 @@ extern "C" fn register(
         DOMAIN.with(|d| {
             let mut d = d.borrow_mut();
             for c in d.commands.values().filter(|c| c.name == name) {
-                if c.owner != ctx {
+                if c.cookie != cookie {
                     return FerrumStatus::PERMISSION_DENIED;
                 }
                 if c.params == params {
@@ -604,135 +560,90 @@ extern "C" fn register(
                     return FerrumStatus::INVALID_ARGUMENT;
                 }
             }
-            let handle = CommandHandle(serial(&mut d));
             d.commands.insert(
                 handle.0.to_raw(),
-                Rc::new(Command {
-                    owner: ctx,
+                Command {
+                    cookie,
                     name,
                     permission: def.permission,
                     params,
-                    callback,
-                }),
+                },
             );
-            put(out, handle)
+            FerrumStatus::OK
         })
     })
 }
-extern "C" fn unregister(ctx: ModContextHandle, h: CommandHandle) -> FerrumStatus {
+pub(super) extern "C" fn unregister(cookie: ShimModCookie, h: CommandHandle) -> FerrumStatus {
     guard(|| {
-        let removed = DOMAIN.with(|d| {
+        DOMAIN.with(|d| {
             let mut d = d.borrow_mut();
             match d.commands.get(&h.0.to_raw()) {
-                Some(c) if c.owner != ctx => Err(FerrumStatus::PERMISSION_DENIED),
-                None => Err(FerrumStatus::STALE_HANDLE),
-                _ => Ok(d.commands.remove(&h.0.to_raw())),
+                Some(c) if c.cookie != cookie => FerrumStatus::PERMISSION_DENIED,
+                None => FerrumStatus::STALE_HANDLE,
+                _ => {
+                    d.commands.remove(&h.0.to_raw());
+                    FerrumStatus::OK
+                }
             }
-        });
-        match removed {
-            Ok(c) => {
-                drop(c);
-                FerrumStatus::OK
-            }
-            Err(s) => s,
-        }
+        })
     })
 }
-fn scope<T>(
-    ctx: ModContextHandle,
-    h: CommandScopeHandle,
-    f: impl FnOnce(&mut Scope) -> T,
-) -> Result<T, FerrumStatus> {
+fn scope<T>(h: u64, f: impl FnOnce(&mut Scope) -> T) -> Result<T, FerrumStatus> {
     DOMAIN.with(|d| {
         let mut d = d.borrow_mut();
-        match d.scopes.get_mut(&h.0.to_raw()) {
-            Some(s) if s.owner == ctx => Ok(f(s)),
-            Some(_) => Err(FerrumStatus::PERMISSION_DENIED),
+        match d.scopes.get_mut(&h) {
+            Some(s) => Ok(f(s)),
             None => Err(FerrumStatus::STALE_HANDLE),
         }
     })
 }
-fn arg(
-    ctx: ModContextHandle,
-    h: CommandScopeHandle,
-    name: FfiStr<'_>,
-    kind: CommandParamKind,
-) -> Result<MockCommandValue, FerrumStatus> {
+fn arg(h: u64, name: FfiStr<'_>, kind: CommandParamKind) -> Result<MockCommandValue, FerrumStatus> {
     let name = text(name);
-    scope(ctx, h, |s| {
+    scope(h, |s| {
         if !s.params.iter().any(|(n, k, _)| *n == name && *k == kind) {
             return Err(FerrumStatus::INVALID_ARGUMENT);
         }
         s.args.get(&name).cloned().ok_or(FerrumStatus::NOT_FOUND)
     })?
 }
-extern "C" fn origin(
-    ctx: ModContextHandle,
-    h: CommandScopeHandle,
-    out: *mut ActorRuntimeId,
-) -> FerrumStatus {
+pub(super) extern "C" fn origin(h: u64, out: *mut ActorRuntimeId) -> FerrumStatus {
     guard(|| {
-        scope(ctx, h, |s| s.origin).map_or_else(
+        scope(h, |s| s.origin).map_or_else(
             |s| s,
             |p| p.map_or(FerrumStatus::NOT_FOUND, |id| put(out, id)),
         )
     })
 }
-extern "C" fn int(
-    ctx: ModContextHandle,
-    h: CommandScopeHandle,
-    n: FfiStr<'_>,
-    out: *mut i32,
-) -> FerrumStatus {
-    guard(|| match arg(ctx, h, n, CommandParamKind::INT) {
+pub(super) extern "C" fn int(h: u64, n: FfiStr<'_>, out: *mut i32) -> FerrumStatus {
+    guard(|| match arg(h, n, CommandParamKind::INT) {
         Ok(MockCommandValue::Int(v)) => put(out, v),
         Err(s) => s,
         _ => FerrumStatus::INVALID_ARGUMENT,
     })
 }
-extern "C" fn float(
-    ctx: ModContextHandle,
-    h: CommandScopeHandle,
-    n: FfiStr<'_>,
-    out: *mut f32,
-) -> FerrumStatus {
-    guard(|| match arg(ctx, h, n, CommandParamKind::FLOAT) {
+pub(super) extern "C" fn float(h: u64, n: FfiStr<'_>, out: *mut f32) -> FerrumStatus {
+    guard(|| match arg(h, n, CommandParamKind::FLOAT) {
         Ok(MockCommandValue::Float(v)) => put(out, v),
         Err(s) => s,
         _ => FerrumStatus::INVALID_ARGUMENT,
     })
 }
-extern "C" fn bool_value(
-    ctx: ModContextHandle,
-    h: CommandScopeHandle,
-    n: FfiStr<'_>,
-    out: *mut FfiBool,
-) -> FerrumStatus {
-    guard(|| match arg(ctx, h, n, CommandParamKind::BOOL) {
+pub(super) extern "C" fn bool_value(h: u64, n: FfiStr<'_>, out: *mut FfiBool) -> FerrumStatus {
+    guard(|| match arg(h, n, CommandParamKind::BOOL) {
         Ok(MockCommandValue::Bool(v)) => put(out, v.into()),
         Err(s) => s,
         _ => FerrumStatus::INVALID_ARGUMENT,
     })
 }
-extern "C" fn string(
-    ctx: ModContextHandle,
-    h: CommandScopeHandle,
-    n: FfiStr<'_>,
-    out: *mut FfiByteWriter,
-) -> FerrumStatus {
-    guard(|| match arg(ctx, h, n, CommandParamKind::STRING) {
+pub(super) extern "C" fn string(h: u64, n: FfiStr<'_>, out: *mut FfiByteWriter) -> FerrumStatus {
+    guard(|| match arg(h, n, CommandParamKind::STRING) {
         Ok(MockCommandValue::String(v)) => write(out, v.as_bytes()),
         Err(s) => s,
         _ => FerrumStatus::INVALID_ARGUMENT,
     })
 }
-extern "C" fn players(
-    ctx: ModContextHandle,
-    h: CommandScopeHandle,
-    n: FfiStr<'_>,
-    out: *mut FfiByteWriter,
-) -> FerrumStatus {
-    guard(|| match arg(ctx, h, n, CommandParamKind::PLAYER) {
+pub(super) extern "C" fn players(h: u64, n: FfiStr<'_>, out: *mut FfiByteWriter) -> FerrumStatus {
+    guard(|| match arg(h, n, CommandParamKind::PLAYER) {
         Ok(MockCommandValue::Players(uuids)) => {
             let found = DOMAIN.with(|d| {
                 let d = d.borrow();
@@ -752,74 +663,11 @@ extern "C" fn players(
         _ => FerrumStatus::INVALID_ARGUMENT,
     })
 }
-extern "C" fn output(
-    ctx: ModContextHandle,
-    h: CommandScopeHandle,
-    error: FfiBool,
-    msg: FfiStr<'_>,
-) -> FerrumStatus {
+pub(super) extern "C" fn output(h: u64, error: FfiBool, msg: FfiStr<'_>) -> FerrumStatus {
     guard(|| {
-        scope(ctx, h, |s| s.output.messages.push((error.get(), text(msg))))
+        scope(h, |s| s.output.messages.push((error.get(), text(msg))))
             .map_or_else(|s| s, |_| FerrumStatus::OK)
     })
-}
-pub(super) static COMMAND: CommandApiV1 = CommandApiV1 {
-    struct_size: size_of::<CommandApiV1>() as u32,
-    register,
-    unregister,
-    origin_player: origin,
-    get_int: int,
-    get_float: float,
-    get_bool: bool_value,
-    get_string: string,
-    get_players: players,
-    output,
-};
-
-pub(super) fn revoke(ctx: ModContextHandle) {
-    super::custom_event_core::revoke(ctx);
-    let removed = DOMAIN.with(|d| {
-        let mut d = d.borrow_mut();
-        let keys = d
-            .commands
-            .iter()
-            .filter(|(_, c)| c.owner == ctx)
-            .map(|(k, _)| *k)
-            .collect::<Vec<_>>();
-        keys.into_iter()
-            .filter_map(|k| d.commands.remove(&k))
-            .collect::<Vec<_>>()
-    });
-    drop(removed);
-    let removed = DOMAIN.with(|d| {
-        let mut d = d.borrow_mut();
-        let keys: Vec<_> = d
-            .listeners
-            .iter()
-            .filter(|(_, l)| l.owner == ctx)
-            .map(|(k, _)| *k)
-            .collect();
-        keys.into_iter()
-            .filter_map(|k| d.listeners.remove(&k))
-            .collect::<Vec<_>>()
-    });
-    drop(removed);
-}
-pub(super) fn defer_disable(ctx: ModContextHandle) -> bool {
-    DOMAIN.with(|d| {
-        let mut d = d.borrow_mut();
-        if d.active.get(&ctx.0.to_raw()).copied().unwrap_or(0) > 0 {
-            if !d.pending.contains(&ctx) {
-                d.pending.push(ctx);
-            }
-            true
-        } else {
-            false
-        }
-    })
-}
-pub(super) fn active(ctx: ModContextHandle) -> bool {
-    DOMAIN.with(|d| d.borrow().active.get(&ctx.0.to_raw()).copied().unwrap_or(0) > 0)
 }
 pub(super) fn reset() {
     let old = DOMAIN.with(|d| std::mem::take(&mut *d.borrow_mut()));
@@ -962,11 +810,13 @@ impl MockHost {
         origin: Option<PlayerUuid>,
         args: &[(&str, MockCommandValue)],
     ) -> Result<MockCommandOutput, Error> {
+        check(guard(|| FerrumStatus::OK))?;
+        self.flush_disables();
         let args: BTreeMap<String, MockCommandValue> = args
             .iter()
             .map(|(n, v)| ((*n).to_owned(), v.clone()))
             .collect();
-        let (command, origin) = DOMAIN
+        let (raw, command, origin) = DOMAIN
             .with(|d| {
                 let d = d.borrow();
                 let origin = origin
@@ -978,17 +828,17 @@ impl MockHost {
                             .ok_or(FerrumStatus::NOT_FOUND)
                     })
                     .transpose()?;
-                let command = d
+                let (raw, command) = d
                     .commands
-                    .values()
-                    .find(|c| {
+                    .iter()
+                    .find(|(_, c)| {
                         c.name == name
                             && c.params
                                 .iter()
                                 .all(|(n, k, o)| args.get(n).map_or(*o, |v| v.kind() == *k))
                             && args.keys().all(|n| c.params.iter().any(|(p, _, _)| p == n))
                     })
-                    .cloned()
+                    .map(|(raw, command)| (*raw, command.clone()))
                     .ok_or(FerrumStatus::NOT_FOUND)?;
                 if let Some(id) = origin {
                     let op = d
@@ -1000,61 +850,38 @@ impl MockHost {
                         return Err(FerrumStatus::PERMISSION_DENIED);
                     }
                 }
-                Ok::<_, FerrumStatus>((command, origin))
+                Ok::<_, FerrumStatus>((raw, command, origin))
             })
             .map_err(|s| Error::new(s, "mock 命令不可用或参数/权限不符"))?;
-        enabled(command.owner).map_err(|s| Error::new(s, "模组未启用"))?;
         let h = DOMAIN.with(|d| {
             let mut d = d.borrow_mut();
-            let h = CommandScopeHandle(serial(&mut d));
+            let h = serial(&mut d).to_raw();
             d.scopes.insert(
-                h.0.to_raw(),
+                h,
                 Scope {
-                    owner: command.owner,
                     origin,
                     args,
                     params: command.params.clone(),
                     output: MockCommandOutput::default(),
                 },
             );
-            *d.active.entry(command.owner.0.to_raw()).or_default() += 1;
             h
         });
-        let status =
-            (command.callback.invoke_fn)(command.callback.env, h, RawMainThreadToken::ASSERTED);
-        let (out, pending) = DOMAIN.with(|d| {
-            let mut d = d.borrow_mut();
-            let out = d
+        let status = ferrum_host::command::ferrum_host_dispatch_command(raw, h);
+        let result = check(status);
+        let out = DOMAIN.with(|d| {
+            d.borrow_mut()
                 .scopes
-                .remove(&h.0.to_raw())
-                .expect("active mock command scope")
-                .output;
-            let active = d.active.entry(command.owner.0.to_raw()).or_default();
-            *active -= 1;
-            let pending = *active == 0 && d.pending.contains(&command.owner);
-            if pending {
-                d.pending.retain(|c| *c != command.owner);
-            }
-            (out, pending)
+                .remove(&h)
+                .expect("active shim command scope")
+                .output
         });
-        let owner = command.owner;
-        if status == FerrumStatus::MOD_PANICKED || status == FerrumStatus::CALLBACK_POISONED {
-            let removed = DOMAIN.with(|d| {
-                let mut d = d.borrow_mut();
-                let key = d
-                    .commands
-                    .iter()
-                    .find(|(_, c)| Rc::ptr_eq(c, &command))
-                    .map(|(k, _)| *k);
-                key.and_then(|k| d.commands.remove(&k))
-            });
-            drop(removed);
-        }
-        drop(command);
-        if pending {
-            self.finish_disable(&super::MockMod { ctx: owner })?;
-        }
-        check(status)?;
+        self.flush_disables();
+        result?;
         Ok(out)
     }
+}
+
+pub(super) fn player_exists(id: ActorRuntimeId) -> Result<(), FerrumStatus> {
+    player(id, |_| ())
 }

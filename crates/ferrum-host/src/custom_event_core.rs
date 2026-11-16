@@ -1,10 +1,9 @@
-//! 原生自定义事件协议的纯 Rust 实现；mock 复用同一份注册、校验与派发逻辑。
+//! 原生自定义事件协议；真实 shim 与 Rust 假 shim 均经由本宿主核心。
 
 use crate::arena::Arena;
 use ferrum_abi::*;
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 use std::sync::OnceLock;
 
@@ -108,18 +107,15 @@ fn fail(status: FerrumStatus, text: impl Into<String>) -> FerrumStatus {
 }
 fn guard(f: impl FnOnce(&Hooks) -> FerrumStatus) -> FerrumStatus {
     let Some(h) = HOOKS.get() else {
-        return FerrumStatus::SERVICE_UNAVAILABLE;
+        return crate::last_error::fail(
+            FerrumStatus::SERVICE_UNAVAILABLE,
+            "自定义事件 hooks 尚未安装",
+        );
     };
     if !(h.main_thread)() {
         return fail(FerrumStatus::WRONG_THREAD, "通用事件必须在主线程调用");
     }
-    match catch_unwind(AssertUnwindSafe(|| f(h))) {
-        Ok(status) => status,
-        Err(payload) => {
-            std::mem::forget(payload);
-            fail(FerrumStatus::INTERNAL_ERROR, "通用事件宿主内部 panic")
-        }
-    }
+    crate::vtable::guard_api("自定义事件 API", || f(h))
 }
 /// `begin` / `finish` 的 RAII 配对：宿主代码 panic 展开时同样调用 `finish`。
 struct Active<'h> {

@@ -15,6 +15,9 @@ crate-type = ["staticlib", "rlib"]
 [lints]
 workspace = true
 
+[features]
+mock = []
+
 [dependencies]
 ferrum-abi.workspace = true
 libloading = "0.8"

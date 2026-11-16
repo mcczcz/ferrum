@@ -4,7 +4,7 @@
 
 ## MockHost 单元测试
 
-`ferrum-host-mock` 是纯 Rust 假宿主。创建它的线程就是"主线程"。
+`ferrum-host-mock` 使用真实 `ferrum-host` 和 Rust 假 shim。握手、生命周期、接口查询、回调派发、资源撤销与熔断均复用真实宿主；假 shim 只提供世界数据、命令解析和事件路由。创建它的线程就是"主线程"。
 
 `Cargo.toml`：模组必须同时是 `cdylib` 和 `rlib`，否则 `tests/*.rs` 链接不到模组类型。
 
@@ -45,6 +45,8 @@ fn lifecycle() {
 - 模组目录为 `mods/<name>`（`config_dir()` 等返回 `mods/<name>/config`，不会创建真实目录）。
 - `MockHost` drop 时，按加载逆序卸载仍加载的模组。
 - 状态：`Loaded`、`Enabling`、`Enabled`、`Disabling`、`Disabled`、`Unloaded`。
+- 重复启用已启用模组直接成功；停用 `Loaded` / `Disabled` 模组直接成功，不重复调用生命周期钩子。停用、卸载钩子的错误由真实宿主记日志并继续清理。
+- 模组上下文及回调句柄使用真实宿主的代数槽位，不会因创建下一次 `MockHost` 而重置宿主句柄池。
 
 ### Panic 防火墙
 

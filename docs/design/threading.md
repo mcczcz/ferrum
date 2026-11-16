@@ -9,6 +9,8 @@
 
 主线程 ID 由 shim 在启用时登记。宿主所有领域 API 入口都检查它，失败返回 `WRONG_THREAD`。shim 在派发事件和命令前也检查，不通过就不授予令牌。
 
+测试时，`ferrum-host-mock` 通过 `ferrum-host/mock` feature 使用同一套宿主逻辑。shim 函数表、SDK 根表和自定义事件 hooks 保持固定；互斥的 mock 会话只在旧模组全部卸载后重新绑定主线程并清理假世界。生产构建仍使用只初始化一次的主线程 ID。
+
 调度器与 `async` 桥接：规划中，见 [../roadmap.md](../roadmap.md)。
 
 ## MainThreadToken

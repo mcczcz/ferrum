@@ -11,6 +11,7 @@ LeviLamina/BDS (C++) <-[A: cpp-shim]-> ferrum-host (Rust) <-[B: SDK 跳板]-> �
 - 导出给 `ferrum-host` 的函数标 `noexcept`。
 - 外层 `try { ... } catch (...)`。捕获后用 `ll::error_utils::makeExceptionString` 取描述，写入 last-error，返回 `CPP_EXCEPTION`。
 - `ferrum-host` 自己导出的 `extern "C"` 函数用 `catch_unwind` 包裹（`vtable::guard`）。宿主内部 panic 返回 `INTERNAL_ERROR`。
+- 状态码 API 的 guard 隔离每次调用的错误槽；普通失败未提供详情时，按操作位置和状态补充说明，避免返回此前调用遗留的错误。shim 或模组提供的具体详情优先保留。
 
 ## 防火墙 B：SDK 跳板
 

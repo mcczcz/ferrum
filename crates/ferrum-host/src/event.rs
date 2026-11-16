@@ -57,16 +57,16 @@ extern "C" fn subscribe(
     callback: EventCallbackV1,
     out: *mut ListenerHandle,
 ) -> FerrumStatus {
-    vtable::guard(|| {
+    vtable::guard_api("event::subscribe", || {
         if let Err(s) = main_thread() {
             return s;
         }
         if subscription.is_null() || out.is_null() {
-            return FerrumStatus::NULL_POINTER;
+            return last_error::fail(FerrumStatus::NULL_POINTER, "事件订阅描述或输出句柄指针为空");
         }
         // SAFETY: 调用方保证非空指针至少指向可读的结构头。
         if unsafe { (*subscription).struct_size } < size_of::<EventSubscriptionV1>() as u32 {
-            return FerrumStatus::ABI_INCOMPATIBLE;
+            return last_error::fail(FerrumStatus::ABI_INCOMPATIBLE, "事件订阅描述大小不足");
         }
         // SAFETY: 已确认结构大小，调用方保证其在同步调用内有效。
         let subscription = unsafe { &*subscription };
@@ -74,7 +74,7 @@ extern "C" fn subscribe(
             subscription.kind,
             EventKind::PLAYER_JOIN | EventKind::PLAYER_DISCONNECT | EventKind::PLAYER_CHAT
         ) {
-            return FerrumStatus::UNSUPPORTED;
+            return last_error::fail(FerrumStatus::UNSUPPORTED, "不支持的原生事件类型");
         }
         if !matches!(
             subscription.priority,
@@ -84,17 +84,17 @@ extern "C" fn subscribe(
                 | EventPriority::LOW
                 | EventPriority::LOWEST
         ) {
-            return FerrumStatus::INVALID_ARGUMENT;
+            return last_error::fail(FerrumStatus::INVALID_ARGUMENT, "无效的事件优先级");
         }
         let entry = match runtime::lookup(ctx) {
             Ok(e) => e,
             Err(s) => return s,
         };
         if !matches!(entry.state(), ModState::Enabling | ModState::Enabled) {
-            return FerrumStatus::MOD_DISABLED;
+            return last_error::fail(FerrumStatus::MOD_DISABLED, "只能在启用阶段订阅事件");
         }
         let Some(api) = shim::get() else {
-            return FerrumStatus::SERVICE_UNAVAILABLE;
+            return last_error::fail(FerrumStatus::SERVICE_UNAVAILABLE, "事件 shim 尚未安装");
         };
         let listener = Arc::new(Listener {
             owner: ctx,
@@ -132,7 +132,7 @@ extern "C" fn subscribe(
 }
 
 extern "C" fn unsubscribe(ctx: ModContextHandle, handle: ListenerHandle) -> FerrumStatus {
-    vtable::guard(|| {
+    vtable::guard_api("event::unsubscribe", || {
         if let Err(s) = main_thread() {
             return s;
         }
@@ -194,7 +194,7 @@ fn scope_call(
     cancellable: bool,
     f: impl FnOnce(&shim::FerrumShimApi, u64) -> FerrumStatus,
 ) -> FerrumStatus {
-    vtable::guard(|| {
+    vtable::guard_api("event::scope_call", || {
         if let Err(s) = main_thread() {
             return s;
         }
@@ -248,7 +248,7 @@ extern "C" fn chat_message(
 /// shim 仅传递栈上事件的数字索引，C++ 对象指针不会进入 Rust。
 #[unsafe(no_mangle)]
 pub extern "C" fn ferrum_host_dispatch_event(raw: u64, shim_scope: u64) -> FerrumStatus {
-    vtable::guard(|| {
+    vtable::guard_api("event::ferrum_host_dispatch_event", || {
         if let Err(s) = main_thread() {
             return s;
         }

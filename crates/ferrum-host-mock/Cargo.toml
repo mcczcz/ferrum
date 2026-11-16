@@ -13,3 +13,4 @@ workspace = true
 [dependencies]
 ferrum-abi.workspace = true
 ferrum-sdk.workspace = true
+ferrum-host = { path = "../ferrum-host", features = ["mock"] }

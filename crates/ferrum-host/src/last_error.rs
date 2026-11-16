@@ -25,6 +25,43 @@ pub fn take() -> Option<String> {
     LAST_ERROR.with(|slot| slot.borrow_mut().take())
 }
 
+/// 隔离一次 API 调用的错误详情；失败时不能误用此前调用留下的消息。
+pub(crate) fn scope(
+    operation: impl std::fmt::Display,
+    f: impl FnOnce() -> FerrumStatus,
+) -> FerrumStatus {
+    let previous = take();
+    let status = f();
+    LAST_ERROR.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if status.is_ok() {
+            if slot.is_none() {
+                *slot = previous;
+            }
+        } else if slot.as_ref().is_none_or(|text| text.is_empty()) {
+            let detail = match status {
+                FerrumStatus::NULL_POINTER => "必需的输入或输出指针为空",
+                FerrumStatus::INVALID_ARGUMENT => "参数值、类型或当前作用域不符合要求",
+                FerrumStatus::ABI_INCOMPATIBLE => "ABI 版本或结构体大小不兼容",
+                FerrumStatus::MOD_DISABLED => "模组当前状态不允许此操作",
+                FerrumStatus::STALE_HANDLE => "句柄已失效或资源已销毁",
+                FerrumStatus::PERMISSION_DENIED => "无权访问该资源",
+                FerrumStatus::NOT_FOUND => "请求的对象或资源不存在",
+                FerrumStatus::SERVICE_UNAVAILABLE => "shim 或世界服务尚不可用",
+                FerrumStatus::UNSUPPORTED => "宿主不支持请求的操作",
+                FerrumStatus::WRONG_THREAD => "此操作必须在服务端主线程调用",
+                FerrumStatus::REENTRANT_CALL => "当前回调不允许重入",
+                FerrumStatus::CALLBACK_POISONED => "回调此前 panic，已被毒化",
+                FerrumStatus::MOD_PANICKED => "模组回调发生 panic",
+                FerrumStatus::ALREADY_EXISTS => "同名资源已注册",
+                _ => "操作未能完成",
+            };
+            *slot = Some(format!("{operation}: {status}，{detail}"));
+        }
+    });
+    status
+}
+
 /// 将 `text` 写入调用方提供的写入器；`writer` 为空时返回 `NULL_POINTER`。
 ///
 /// # Safety

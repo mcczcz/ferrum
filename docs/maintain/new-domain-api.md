@@ -54,7 +54,7 @@
 
 ### 7. mock
 
-- [ ] 在 `crates/ferrum-host-mock/src/` 实现假函数，在 `lib.rs` 的 `query_interface` 里挂上。
+- [ ] 在 `crates/ferrum-host-mock/src/` 实现假 shim 函数，并在 `shim.rs` 的 `FerrumShimApi` 注入表中挂上。接口查询、生命周期和回调所有权复用 `ferrum-host`，不另写一套。
 - [ ] 给 `MockHost` 加测试用的 setter 和 getter。
 
 ### 8. 文档与验证

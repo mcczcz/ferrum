@@ -59,12 +59,12 @@ extern "C" fn register(
     callback: CommandCallbackV1,
     out: *mut CommandHandle,
 ) -> FerrumStatus {
-    vtable::guard(|| {
+    vtable::guard_api("command::register", || {
         if let Err(s) = main_thread() {
             return s;
         }
         if out.is_null() || definition.is_null() {
-            return FerrumStatus::NULL_POINTER;
+            return last_error::fail(FerrumStatus::NULL_POINTER, "命令定义或输出句柄指针为空");
         }
         let entry = match runtime::lookup(ctx) {
             Ok(e) => e,
@@ -74,11 +74,11 @@ extern "C" fn register(
             return last_error::fail(FerrumStatus::MOD_DISABLED, "只能在启用阶段注册命令");
         }
         let Some(api) = shim::get() else {
-            return FerrumStatus::SERVICE_UNAVAILABLE;
+            return last_error::fail(FerrumStatus::SERVICE_UNAVAILABLE, "命令 shim 尚未安装");
         };
         // SAFETY: ABI 调用方保证 definition 非空时指向有效描述头。
         if unsafe { (*definition).struct_size } < size_of::<CommandDefinitionV1<'_>>() as u32 {
-            return FerrumStatus::ABI_INCOMPATIBLE;
+            return last_error::fail(FerrumStatus::ABI_INCOMPATIBLE, "命令定义大小不足");
         }
         let registered = Arc::new(RegisteredCommand {
             owner: ctx,
@@ -116,7 +116,7 @@ extern "C" fn register(
 }
 
 extern "C" fn unregister(ctx: ModContextHandle, handle: CommandHandle) -> FerrumStatus {
-    vtable::guard(|| {
+    vtable::guard_api("command::unregister", || {
         if let Err(s) = main_thread() {
             return s;
         }
@@ -176,7 +176,7 @@ fn scope_call(
     scope: CommandScopeHandle,
     f: impl FnOnce(&shim::FerrumShimApi, u64) -> FerrumStatus,
 ) -> FerrumStatus {
-    vtable::guard(|| {
+    vtable::guard_api("command::scope_call", || {
         if let Err(s) = main_thread() {
             return s;
         }
@@ -254,7 +254,7 @@ extern "C" fn output(
 /// cpp-shim 只传入自身栈帧的数字标识，游戏指针留在 C++ 内。
 #[unsafe(no_mangle)]
 pub extern "C" fn ferrum_host_dispatch_command(raw: u64, shim_scope: u64) -> FerrumStatus {
-    vtable::guard(|| {
+    vtable::guard_api("command::ferrum_host_dispatch_command", || {
         if let Err(s) = main_thread() {
             return s;
         }

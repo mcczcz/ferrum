@@ -71,6 +71,7 @@ name = "ferrum-host-mock"
 version = "0.1.0"
 dependencies = [
  "ferrum-abi",
+ "ferrum-host",
  "ferrum-sdk",
 ]
 

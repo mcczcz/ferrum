@@ -19,6 +19,8 @@ pub mod exports;
 pub mod last_error;
 pub mod loader;
 pub mod mob;
+#[cfg(feature = "mock")]
+pub mod mock_support;
 pub mod player;
 pub mod runtime;
 pub mod shim;

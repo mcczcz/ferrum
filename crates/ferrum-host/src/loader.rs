@@ -63,8 +63,8 @@ fn shadow_copy(info: &ModInfo) -> Result<PathBuf, String> {
     Ok(target)
 }
 
-/// 加载镜像并执行握手；成功后返回已校验的描述符。镜像被有意泄漏（保留镜像模式）。
-fn load_image(ctx: ModContextHandle, info: &ModInfo) -> Result<FerrumModDescriptor, FerrumStatus> {
+/// 加载镜像并解析入口。镜像被有意泄漏，入口在进程生命周期内有效。
+fn load_image(info: &ModInfo) -> Result<ModEntryFnV1, FerrumStatus> {
     let path = shadow_copy(info).map_err(|e| fail(FerrumStatus::NOT_FOUND, e))?;
 
     // SAFETY: 加载任意 DLL 会执行其 DllMain 与 TLS 回调；这是加载器的本职，
@@ -93,7 +93,13 @@ fn load_image(ctx: ModContextHandle, info: &ModInfo) -> Result<FerrumModDescript
 
     // 保留镜像：永不 FreeLibrary，函数指针在进程生命周期内始终有效。
     std::mem::forget(library);
+    Ok(entry)
+}
 
+fn handshake(
+    ctx: ModContextHandle,
+    entry: ModEntryFnV1,
+) -> Result<FerrumModDescriptor, FerrumStatus> {
     // 全零缓冲区 + 预填容量：模组只写它与宿主都认识的前缀，未写的尾部字段保持零值。
     let capacity = size_of::<FerrumModDescriptor>() as u32;
     let mut descriptor = MaybeUninit::<FerrumModDescriptor>::zeroed();
@@ -159,6 +165,25 @@ fn lifecycle_failed(entry: &ModEntry, phase: &str, status: FerrumStatus) -> Ferr
 ///
 /// 无论成败，`info.cookie` 的所有权都已转交宿主：最终由 `release_cookie` 归还。
 pub fn load(info: ModInfo) -> Result<ModContextHandle, FerrumStatus> {
+    load_with(info, load_image)
+}
+
+/// 使用进程内入口复用真实宿主的握手与生命周期，供 Rust 假 shim 使用。
+///
+/// # Safety
+/// entry 必须遵守 ModEntryFnV1 契约，所有回调在宿主使用期间保持有效。
+#[cfg(feature = "mock")]
+pub unsafe fn load_entry(
+    info: ModInfo,
+    entry: ModEntryFnV1,
+) -> Result<ModContextHandle, FerrumStatus> {
+    load_with(info, |_| Ok(entry))
+}
+
+fn load_with(
+    info: ModInfo,
+    resolve: impl FnOnce(&ModInfo) -> Result<ModEntryFnV1, FerrumStatus>,
+) -> Result<ModContextHandle, FerrumStatus> {
     let existing = runtime::find_by_name(&info.name).map(|(_, e)| e.state());
     // 先构造记录，使任何失败路径都经由 ModEntry::drop 归还 cookie。
     let (ctx, entry) = runtime::insert(ModEntry::new(info));
@@ -170,7 +195,7 @@ pub fn load(info: ModInfo) -> Result<ModContextHandle, FerrumStatus> {
         ));
     }
 
-    let descriptor = match load_image(ctx, &entry.info) {
+    let descriptor = match resolve(&entry.info).and_then(|f| handshake(ctx, f)) {
         Ok(d) => d,
         Err(status) => {
             runtime::remove(ctx);

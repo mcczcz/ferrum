@@ -49,7 +49,7 @@ bedrock_server + LeviLamina
 | `ferrum-abi` | `#![no_std]` rlib，无外部依赖 | `#[repr(C)]` 类型、函数指针、常量 | 放逻辑 |
 | `ferrum-sdk` | rlib | 模组侧安全 API | 依赖 host / shim |
 | `ferrum-macros` | proc-macro | `#[mod_entry]`：导出 `ferrum_mod_entry_v1`、握手、`catch_unwind` | - |
-| `ferrum-host-mock` | rlib（dev） | 纯 Rust 假宿主，供模组 `cargo test` | - |
+| `ferrum-host-mock` | rlib（dev） | 真实 `ferrum-host` + Rust 假 shim，供模组 `cargo test` | 不重写宿主生命周期与回调管理 |
 | `xtask` | 二进制 | 生成 C 头文件与布局锁 | - |
 
 依赖方向：

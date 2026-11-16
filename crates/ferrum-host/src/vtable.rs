@@ -4,6 +4,7 @@
 //! 绝不让展开越过 FFI 边界。
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
+#[cfg(not(feature = "mock"))]
 use std::sync::OnceLock;
 use std::thread::ThreadId;
 use std::time::Instant;
@@ -18,8 +19,16 @@ use crate::runtime::{self, ModState};
 use crate::shim;
 
 /// 在宿主侧 FFI 入口兜底捕获 panic。
+#[track_caller]
 pub(crate) fn guard(f: impl FnOnce() -> FerrumStatus) -> FerrumStatus {
-    match catch_unwind(AssertUnwindSafe(f)) {
+    guard_api(std::panic::Location::caller(), f)
+}
+
+pub(crate) fn guard_api(
+    operation: impl std::fmt::Display,
+    f: impl FnOnce() -> FerrumStatus,
+) -> FerrumStatus {
+    match catch_unwind(AssertUnwindSafe(|| last_error::scope(operation, f))) {
         Ok(status) => status,
         Err(payload) => {
             let msg = panic_message(payload.as_ref());
@@ -46,15 +55,36 @@ pub(crate) fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 // 主线程识别
 // ---------------------------------------------------------------------------
 
+#[cfg(not(feature = "mock"))]
 static MAIN_THREAD: OnceLock<ThreadId> = OnceLock::new();
+#[cfg(feature = "mock")]
+static MAIN_THREAD: std::sync::Mutex<Option<ThreadId>> = std::sync::Mutex::new(None);
 
 /// 由 shim 在确认处于 BDS 服务端线程时调用一次。
 pub fn mark_main_thread() {
+    #[cfg(not(feature = "mock"))]
     let _ = MAIN_THREAD.set(std::thread::current().id());
+    #[cfg(feature = "mock")]
+    {
+        let mut thread = MAIN_THREAD.lock().unwrap_or_else(|e| e.into_inner());
+        thread.get_or_insert_with(|| std::thread::current().id());
+    }
 }
 
 pub fn is_main_thread() -> bool {
-    MAIN_THREAD.get() == Some(&std::thread::current().id())
+    #[cfg(not(feature = "mock"))]
+    {
+        MAIN_THREAD.get() == Some(&std::thread::current().id())
+    }
+    #[cfg(feature = "mock")]
+    {
+        *MAIN_THREAD.lock().unwrap_or_else(|e| e.into_inner()) == Some(std::thread::current().id())
+    }
+}
+
+#[cfg(feature = "mock")]
+pub(crate) fn set_mock_thread(thread: Option<ThreadId>) {
+    *MAIN_THREAD.lock().unwrap_or_else(|e| e.into_inner()) = thread;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +126,8 @@ extern "C" fn core_report_panic(
         } else {
             format!("模组发生 panic: {message} (at {location})")
         };
+        #[cfg(feature = "mock")]
+        crate::mock_support::report_panic(entry.info.cookie, &message, &location);
         mod_log(&entry.info.cookie, LogLevel::ERROR, &text);
 
         let tripped = entry
