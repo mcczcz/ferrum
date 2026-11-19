@@ -20,10 +20,17 @@ use ferrum_abi::*;
 ";
 
 macro_rules! lock {
-    ($out:ident, $ty:ident $(, $field:ident)*) => {{
+    ($out:ident, $ty:ident, struct_size $(, $field:ident)*) => {
+        lock!(@layout $out, $ty, ">=", struct_size $(, $field)*)
+    };
+    ($out:ident, $ty:ident $(, $field:ident)*) => {
+        lock!(@layout $out, $ty, "==" $(, $field)*)
+    };
+    (@layout $out:ident, $ty:ident, $comparison:literal $(, $field:ident)*) => {{
         $out.push(format!(
-            "const _: () = assert!(size_of::<{}>() == {});",
+            "const _: () = assert!(size_of::<{}>() {} {});",
             stringify!($ty),
+            $comparison,
             size_of::<$ty>()
         ));
         $out.push(format!(

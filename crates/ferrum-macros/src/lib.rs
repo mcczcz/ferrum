@@ -113,14 +113,16 @@ pub fn mod_entry(attr: TokenStream, item: TokenStream) -> TokenStream {
                 ctx: ::ferrum_sdk::__private::abi::ModContextHandle,
                 token: ::ferrum_sdk::__private::abi::RawMainThreadToken,
             ) -> ::ferrum_sdk::__private::abi::FerrumStatus {
-                ::ferrum_sdk::__private::on_enable::<#self_ty>(&__FERRUM_STATE, ctx, token)
+                // SAFETY: 宿主只在服务端主线程上用本实例的 ctx 派发启用回调。
+                unsafe { ::ferrum_sdk::__private::on_enable::<#self_ty>(&__FERRUM_STATE, ctx, token) }
             }
 
             extern "C" fn __ferrum_on_disable(
                 ctx: ::ferrum_sdk::__private::abi::ModContextHandle,
                 token: ::ferrum_sdk::__private::abi::RawMainThreadToken,
             ) -> ::ferrum_sdk::__private::abi::FerrumStatus {
-                ::ferrum_sdk::__private::on_disable::<#self_ty>(&__FERRUM_STATE, ctx, token)
+                // SAFETY: 宿主只在服务端主线程上用本实例的 ctx 派发停用回调。
+                unsafe { ::ferrum_sdk::__private::on_disable::<#self_ty>(&__FERRUM_STATE, ctx, token) }
             }
 
             extern "C" fn __ferrum_on_unload(

@@ -94,10 +94,10 @@ pub type ModEntryFnV1 = unsafe extern "C" fn(
 
 ## 4. 布局锁
 
-`crates/ferrum-abi/tests/layout_lock.rs` 为每个已发布类型锁定 `size_of`、`align_of` 和字段 `offset_of`。
+`crates/ferrum-abi/tests/layout_lock.rs` 锁定已登记类型的对齐和字段偏移。按值传递的类型锁定精确大小。以 `struct_size` 开头的可扩展表和配置结构以各版已发布的大小作为下限。
 
 - 改动既有偏移会让该测试编译失败。
-- 追加字段时只能增加总大小并追加新断言，不能改已有行。
+- 尾部追加字段时，生成器追加新字段的偏移断言。结构变大时也会追加新的大小下限，保留各版前缀的记录。
 - 文件由 `cargo xtask layout-lock` 生成，只追加不改写。新类型要在 `xtask/src/layout_lock.rs` 的 `assertions()` 登记。
 - CI 运行 `cargo xtask layout-lock --check`。
 

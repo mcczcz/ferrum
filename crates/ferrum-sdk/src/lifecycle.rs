@@ -223,7 +223,9 @@ fn with_instance<T: FerrumMod>(
     })
 }
 
-pub fn on_enable<T: FerrumMod>(
+/// # Safety
+/// 宿主必须已确认当前处于服务端主线程，并正在启用 `ctx` 对应的模组实例。
+pub unsafe fn on_enable<T: FerrumMod>(
     state: &'static ModState<T>,
     ctx: ModContextHandle,
     _token: RawMainThreadToken,
@@ -231,7 +233,9 @@ pub fn on_enable<T: FerrumMod>(
     with_instance(state, ctx, |m, ctx, token| m.on_enable(ctx, token))
 }
 
-pub fn on_disable<T: FerrumMod>(
+/// # Safety
+/// 宿主必须已确认当前处于服务端主线程，并正在停用 `ctx` 对应的模组实例。
+pub unsafe fn on_disable<T: FerrumMod>(
     state: &'static ModState<T>,
     ctx: ModContextHandle,
     _token: RawMainThreadToken,
