@@ -131,6 +131,7 @@ fn load_enable_disable_unload_reload() {
         event_unsubscribe,
         event_payload_snbt: event_message,
         event_actor: command_origin,
+        llmoney_v1: None,
         event_player: command_origin,
         event_is_cancelled: event_cancelled,
         event_cancel,

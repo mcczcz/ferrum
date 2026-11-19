@@ -480,6 +480,24 @@ typedef struct EventSubscriptionV1 {
 typedef GenerationalHandle CustomListenerHandle;
 
 /**
+ * LegacyMoney 经济接口。金额为有符号 64 位整数，账户使用 XUID 字符串。
+ */
+typedef struct LlMoneyApiV1 {
+  uint32_t struct_size;
+  FerrumStatus (*get)(struct FfiStr, int64_t*);
+  FerrumStatus (*set)(struct FfiStr, int64_t);
+  FerrumStatus (*add)(struct FfiStr, int64_t);
+  FerrumStatus (*reduce)(struct FfiStr, int64_t);
+  FerrumStatus (*transfer)(struct FfiStr, struct FfiStr, int64_t, struct FfiStr);
+  FerrumStatus (*history)(struct FfiStr, int32_t, struct FfiByteWriter*);
+  FerrumStatus (*clear_history)(int32_t);
+  /**
+   * 每行依次为小端 i64 余额、小端 u64 XUID 字节数、UTF-8 XUID。
+   */
+  FerrumStatus (*ranking)(uint16_t, struct FfiByteWriter*);
+} LlMoneyApiV1;
+
+/**
  * `cpp-shim` 在 `ferrum_host_init` 时注入的函数表。全部函数必须 `noexcept`。
  */
 typedef struct FerrumShimApi {
@@ -531,6 +549,10 @@ typedef struct FerrumShimApi {
   FerrumStatus (*custom_event_unsubscribe)(CustomListenerHandle);
   FerrumStatus (*event_payload_snbt)(uint64_t, struct FfiByteWriter*);
   FerrumStatus (*event_actor)(uint64_t, ActorRuntimeId*);
+  /**
+   * 返回 shim 内进程期有效的静态适配表。
+   */
+  const struct LlMoneyApiV1 *(*llmoney_v1)(void);
 } FerrumShimApi;
 
 typedef struct AbiVersion {

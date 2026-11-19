@@ -317,3 +317,15 @@ const _: () = assert!(offset_of!(ThreadEventCallbackV1, invoke_fn) == 8);
 const _: () = assert!(offset_of!(ThreadEventCallbackV1, drop_fn) == 16);
 const _: () = assert!(size_of::<EventApiV1>() >= 80);
 const _: () = assert!(offset_of!(EventApiV1, subscribe_sync) == 72);
+
+const _: () = assert!(size_of::<LlMoneyApiV1>() >= 72);
+const _: () = assert!(align_of::<LlMoneyApiV1>() == 8);
+const _: () = assert!(offset_of!(LlMoneyApiV1, struct_size) == 0);
+const _: () = assert!(offset_of!(LlMoneyApiV1, get) == 8);
+const _: () = assert!(offset_of!(LlMoneyApiV1, set) == 16);
+const _: () = assert!(offset_of!(LlMoneyApiV1, add) == 24);
+const _: () = assert!(offset_of!(LlMoneyApiV1, reduce) == 32);
+const _: () = assert!(offset_of!(LlMoneyApiV1, transfer) == 40);
+const _: () = assert!(offset_of!(LlMoneyApiV1, history) == 48);
+const _: () = assert!(offset_of!(LlMoneyApiV1, clear_history) == 56);
+const _: () = assert!(offset_of!(LlMoneyApiV1, ranking) == 64);

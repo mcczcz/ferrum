@@ -101,6 +101,19 @@ fn assertions() -> Vec<String> {
         is_air,
         set_type
     );
+    lock!(
+        out,
+        LlMoneyApiV1,
+        struct_size,
+        get,
+        set,
+        add,
+        reduce,
+        transfer,
+        history,
+        clear_history,
+        ranking
+    );
     lock!(out, PlayerUuid, bytes);
     lock!(out, Vec3, x, y, z);
     lock!(out, DimensionId);

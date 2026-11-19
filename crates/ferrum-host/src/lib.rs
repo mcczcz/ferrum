@@ -17,6 +17,7 @@ mod custom_event_core;
 pub mod event;
 pub mod exports;
 pub mod last_error;
+mod llmoney;
 pub mod loader;
 pub mod mob;
 #[cfg(feature = "mock")]

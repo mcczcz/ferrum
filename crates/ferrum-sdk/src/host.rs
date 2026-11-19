@@ -208,6 +208,18 @@ domain_api!(CommandApi, command_api, CommandApiV1, "ferrum.command.v1",
     output: extern "C" fn(ModContextHandle, CommandScopeHandle, FfiBool, FfiStr<'_>) -> FerrumStatus;
 });
 
+domain_api!(LlMoneyApi, llmoney_api, LlMoneyApiV1, "ferrum.llmoney.v1",
+    "宿主未提供 LLMoney API（需要 ABI 1.3）", "LLMoney API 子表不完整", {
+    get: extern "C" fn(FfiStr<'_>, *mut i64) -> FerrumStatus;
+    set: extern "C" fn(FfiStr<'_>, i64) -> FerrumStatus;
+    add: extern "C" fn(FfiStr<'_>, i64) -> FerrumStatus;
+    reduce: extern "C" fn(FfiStr<'_>, i64) -> FerrumStatus;
+    transfer: extern "C" fn(FfiStr<'_>, FfiStr<'_>, i64, FfiStr<'_>) -> FerrumStatus;
+    history: extern "C" fn(FfiStr<'_>, i32, *mut FfiByteWriter) -> FerrumStatus;
+    clear_history: extern "C" fn(i32) -> FerrumStatus;
+    ranking: extern "C" fn(u16, *mut FfiByteWriter) -> FerrumStatus;
+});
+
 domain_api!(BlockApi, block_api, BlockApiV1, "ferrum.block.v1",
     "宿主未提供方块 API", "方块 API 子表不完整", {
     type_name: extern "C" fn(DimensionId, BlockPos, *mut FfiByteWriter) -> FerrumStatus;

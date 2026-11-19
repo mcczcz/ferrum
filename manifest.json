@@ -4,6 +4,9 @@
     "version": "${modVersion}",
     "type": "native",
     "platform": "${modPlatform}",
+    "optionalDependencies": [
+        { "name": "LegacyMoney" }
+    ],
     "dependencies": [
     ]
 }

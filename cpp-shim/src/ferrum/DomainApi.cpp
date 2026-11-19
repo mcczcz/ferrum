@@ -684,6 +684,7 @@ static FerrumStatus commandOutput(uint64_t id, FfiBool error, FfiStr text) noexc
     });
 }
 void installDomainApi(FerrumShimApi& api) {
+    api.llmoney_v1 = llMoneyApi;
     installEventApi(api);
     api.actor_v1 = {
         sizeof(ActorApiV1),

@@ -79,6 +79,8 @@ pub struct FerrumShimApi {
         extern "C" fn(ferrum_abi::CustomListenerHandle) -> ferrum_abi::FerrumStatus,
     pub event_payload_snbt: extern "C" fn(u64, *mut FfiByteWriter) -> ferrum_abi::FerrumStatus,
     pub event_actor: extern "C" fn(u64, *mut ActorRuntimeId) -> ferrum_abi::FerrumStatus,
+    /// 返回 shim 内进程期有效的静态适配表。
+    pub llmoney_v1: Option<extern "C" fn() -> *const ferrum_abi::LlMoneyApiV1>,
 }
 
 /// `cpp-shim` 调用 `ferrum_host_load_mod` 时提供的模组信息（所有字符串为 UTF-8，仅本次调用内有效）。
