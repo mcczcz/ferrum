@@ -215,6 +215,8 @@ pub(crate) fn tick() -> FerrumStatus {
     if !vtable::is_main_thread() {
         return FerrumStatus::WRONG_THREAD;
     }
+    crate::loader::drain_pending_disables();
+    crate::event::drain_poisoned_listeners();
     let ready = {
         let mut queue = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
         queue.tick += 1;

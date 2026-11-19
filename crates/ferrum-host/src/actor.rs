@@ -33,6 +33,18 @@ extern "C" fn dimension(id: ActorRuntimeId, out: *mut DimensionId) -> FerrumStat
 extern "C" fn teleport(id: ActorRuntimeId, pos: Vec3, dim: DimensionId) -> FerrumStatus {
     call(|a| (a.teleport)(id, pos, dim))
 }
+extern "C" fn name_tag(id: ActorRuntimeId, out: *mut FfiByteWriter) -> FerrumStatus {
+    call(|a| (a.name_tag)(id, out))
+}
+extern "C" fn set_name_tag(id: ActorRuntimeId, value: FfiStr<'_>) -> FerrumStatus {
+    call(|a| (a.set_name_tag)(id, value))
+}
+extern "C" fn is_on_ground(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
+    call(|a| (a.is_on_ground)(id, out))
+}
+extern "C" fn is_in_water(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
+    call(|a| (a.is_in_water)(id, out))
+}
 pub static ACTOR_V1: ActorApiV1 = ActorApiV1 {
     struct_size: size_of::<ActorApiV1>() as u32,
     find_by_unique_id,
@@ -42,4 +54,8 @@ pub static ACTOR_V1: ActorApiV1 = ActorApiV1 {
     position,
     dimension,
     teleport,
+    name_tag,
+    set_name_tag,
+    is_on_ground,
+    is_in_water,
 };

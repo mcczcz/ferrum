@@ -237,6 +237,8 @@ typedef struct CustomEventViewApiV1 {
   FerrumStatus (*is_active)(EventScopeHandle);
 } CustomEventViewApiV1;
 
+typedef GenerationalHandle ListenerHandle;
+
 /**
  * `cpp-shim` 为每个 `FerrumMod` 提供的不透明 cookie（指向 C++ 侧对象）。
  *
@@ -310,6 +312,10 @@ typedef struct PlayerApiV1 {
   FerrumStatus (*set_health)(ActorRuntimeId, float);
   FerrumStatus (*game_mode)(ActorRuntimeId, FerrumGameMode*);
   FerrumStatus (*set_game_mode)(ActorRuntimeId, FerrumGameMode);
+  FerrumStatus (*xp_earned_at_current_level)(ActorRuntimeId, int32_t*);
+  FerrumStatus (*xp_needed_for_next_level)(ActorRuntimeId, int32_t*);
+  FerrumStatus (*add_experience)(ActorRuntimeId, int32_t);
+  FerrumStatus (*is_hungry)(ActorRuntimeId, FfiBool*);
 } PlayerApiV1;
 
 typedef GenerationalHandle CommandHandle;
@@ -401,6 +407,10 @@ typedef struct ActorApiV1 {
   FerrumStatus (*position)(ActorRuntimeId, struct FerrumVec3*);
   FerrumStatus (*dimension)(ActorRuntimeId, FerrumDimensionId*);
   FerrumStatus (*teleport)(ActorRuntimeId, struct FerrumVec3, FerrumDimensionId);
+  FerrumStatus (*name_tag)(ActorRuntimeId, struct FfiByteWriter*);
+  FerrumStatus (*set_name_tag)(ActorRuntimeId, struct FfiStr);
+  FerrumStatus (*is_on_ground)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*is_in_water)(ActorRuntimeId, FfiBool*);
 } ActorApiV1;
 
 /**
@@ -411,14 +421,48 @@ typedef struct MobApiV1 {
   FerrumStatus (*health)(ActorRuntimeId, float*);
   FerrumStatus (*max_health)(ActorRuntimeId, float*);
   FerrumStatus (*set_health)(ActorRuntimeId, float);
+  FerrumStatus (*is_sprinting)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*set_sprinting)(ActorRuntimeId, FfiBool);
 } MobApiV1;
-
-typedef GenerationalHandle ListenerHandle;
 
 typedef uint32_t EventKind;
 #define EventKind_PLAYER_JOIN 0
 #define EventKind_PLAYER_DISCONNECT 1
 #define EventKind_PLAYER_CHAT 2
+#define EventKind_EXECUTING_COMMAND 3
+#define EventKind_EXECUTED_COMMAND 4
+#define EventKind_SERVER_COMMAND_REGISTER 5
+#define EventKind_ACTOR_HURT 6
+#define EventKind_MOB_DIE 7
+#define EventKind_CONSOLE_OUTPUTTING 8
+#define EventKind_CONSOLE_OUTPUTTED 9
+#define EventKind_PLAYER_ADD_EXPERIENCE 10
+#define EventKind_PLAYER_ATTACK 11
+#define EventKind_PLAYER_CHANGE_PERM 12
+#define EventKind_PLAYER_CONNECT 13
+#define EventKind_PLAYER_DESTROY_BLOCK 14
+#define EventKind_PLAYER_DIE 15
+#define EventKind_PLAYER_INTERACT_BLOCK 16
+#define EventKind_PLAYER_JUMP 17
+#define EventKind_PLAYER_PICK_UP_ITEM 18
+#define EventKind_PLAYER_PLACING_BLOCK 19
+#define EventKind_PLAYER_PLACED_BLOCK 20
+#define EventKind_PLAYER_RESPAWN 21
+#define EventKind_PLAYER_SNEAKING 22
+#define EventKind_PLAYER_SNEAKED 23
+#define EventKind_PLAYER_SPRINTING 24
+#define EventKind_PLAYER_SPRINTED 25
+#define EventKind_PLAYER_SWING 26
+#define EventKind_PLAYER_USE_ITEM 27
+#define EventKind_SERVER_STARTED 28
+#define EventKind_SERVER_STOPPING 29
+#define EventKind_SERVICE_REGISTER 30
+#define EventKind_SERVICE_UNREGISTER 31
+#define EventKind_BLOCK_CHANGED 32
+#define EventKind_FIRE_SPREAD 33
+#define EventKind_SERVER_LEVEL_TICK 34
+#define EventKind_SPAWNING_MOB 35
+#define EventKind_SPAWNED_MOB 36
 
 typedef uint32_t EventPriority;
 #define EventPriority_HIGHEST 0
@@ -485,6 +529,8 @@ typedef struct FerrumShimApi {
                                          struct FfiStr,
                                          EventPriority);
   FerrumStatus (*custom_event_unsubscribe)(CustomListenerHandle);
+  FerrumStatus (*event_payload_snbt)(uint64_t, struct FfiByteWriter*);
+  FerrumStatus (*event_actor)(uint64_t, ActorRuntimeId*);
 } FerrumShimApi;
 
 typedef struct AbiVersion {
@@ -742,6 +788,15 @@ typedef struct EventCallbackV1 {
 } EventCallbackV1;
 
 /**
+ * 触发线程同步调用。两个字符串分别为 SNBT 和控制台消息。取消请求由调用者初始化为假。
+ */
+typedef struct ThreadEventCallbackV1 {
+  void *env;
+  FerrumStatus (*invoke_fn)(void*, struct FfiStr, struct FfiStr, FfiBool, FfiBool*);
+  void (*drop_fn)(void*);
+} ThreadEventCallbackV1;
+
+/**
  * 主线程事件接口，通过 ferrum.event.v1 查询。取消会停止 LL 的后续监听。
  */
 typedef struct EventApiV1 {
@@ -755,6 +810,12 @@ typedef struct EventApiV1 {
   FerrumStatus (*is_cancelled)(ModContextHandle, EventScopeHandle, FfiBool*);
   FerrumStatus (*cancel)(ModContextHandle, EventScopeHandle);
   FerrumStatus (*chat_message)(ModContextHandle, EventScopeHandle, struct FfiByteWriter*);
+  FerrumStatus (*payload_snbt)(ModContextHandle, EventScopeHandle, struct FfiByteWriter*);
+  FerrumStatus (*actor)(ModContextHandle, EventScopeHandle, ActorRuntimeId*);
+  FerrumStatus (*subscribe_sync)(ModContextHandle,
+                                 const struct EventSubscriptionV1*,
+                                 struct ThreadEventCallbackV1,
+                                 ListenerHandle*);
 } EventApiV1;
 
 /**
@@ -826,6 +887,15 @@ FerrumStatus ferrum_host_dispatch_custom_listener(uint64_t raw, EventScopeHandle
  * shim 仅传递栈上事件的数字索引，C++ 对象指针不会进入 Rust。
  */
 FerrumStatus ferrum_host_dispatch_event(uint64_t raw, uint64_t shim_scope);
+
+/**
+ * 两个文本及取消输出只在同步派发期间借用。该路径永远不发放主线程令牌。
+ */
+FerrumStatus ferrum_host_dispatch_thread_event(ListenerHandle handle,
+                                               struct FfiStr payload,
+                                               struct FfiStr message,
+                                               FfiBool cancelled,
+                                               FfiBool *out);
 
 /**
  * 安装 shim 函数表。必须在其他任何 `ferrum_host_*` 调用之前、且只调用一次。

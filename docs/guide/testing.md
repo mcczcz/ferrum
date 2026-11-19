@@ -100,6 +100,8 @@ fn panic_is_isolated() {
 | `set_block(dim, pos, name)` | 预置方块。未设置的位置视为空气 |
 | `execute_command(name, origin, &[(参数名, MockCommandValue)])` | 执行已注册命令，返回 `MockCommandOutput { messages: Vec<(bool, String)> }`，`bool` 为是否错误 |
 | `emit_player_join(id)` / `emit_player_chat(id, msg)` / `emit_player_disconnect(id)` | 派发玩家事件，详见 [事件](./events.md) |
+| `emit_official_event::<E>(subject, payload_snbt)` | 派发主线程官方事件快照 |
+| `emit_sync_event::<E>(payload_snbt, message, was_cancelled)` | 在调用线程同步派发控制台或服务事件，返回取消状态 |
 | `native_event_api()` | 以 native 发布者身份测试自定义事件 |
 
 `execute_command` 的 `origin` 为 `None` 表示控制台，权限最高；为 `Some(uuid)` 时按该玩家是否 operator 检查权限。`MockCommandValue` 有 `Int`、`Float`、`Bool`、`String`、`Players`。按命令名和参数类型匹配重载，找不到返回 `NotFound`。

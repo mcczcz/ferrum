@@ -51,6 +51,36 @@ impl<'tick> PlayerRef<'tick> {
             mode,
         ))
     }
+    pub fn xp_earned_at_current_level(&self) -> Result<i32> {
+        let mut out = 0;
+        host::check((host::player_api()?.xp_earned_at_current_level()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out)
+    }
+    pub fn xp_needed_for_next_level(&self) -> Result<i32> {
+        let mut out = 0;
+        host::check((host::player_api()?.xp_needed_for_next_level()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out)
+    }
+    pub fn add_experience(&self, points: i32) -> Result<()> {
+        host::check((host::player_api()?.add_experience()?)(
+            self.runtime_id(),
+            points,
+        ))
+    }
+    pub fn is_hungry(&self) -> Result<bool> {
+        let mut out = FfiBool::FALSE;
+        host::check((host::player_api()?.is_hungry()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out.get())
+    }
 }
 
 impl sealed::Sealed for PlayerRef<'_> {}

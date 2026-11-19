@@ -1,4 +1,4 @@
-//! 同步主线程事件。监听器由模组托管，丢弃句柄不会注销监听。
+//! LeviLamina 同步事件。监听器由模组托管，丢弃句柄不会注销监听。
 
 use std::cell::{Cell, UnsafeCell};
 use std::ffi::c_void;
@@ -43,30 +43,223 @@ pub trait MainThreadEvent: sealed::Sealed {
     const KIND: EventKind;
 }
 
+/// 在 LL 触发线程同步派发，可并发调用。
+pub trait EmitterThreadEvent: sealed::Sealed {
+    #[doc(hidden)]
+    const KIND: EventKind;
+}
+pub trait ConsoleEvent: EmitterThreadEvent {}
 pub trait PlayerEvent: MainThreadEvent {}
 pub trait CancellableEvent: MainThreadEvent {}
 
-/// 玩家初始化阶段事件；取消不等同于踢出或拒绝登录。
-pub struct PlayerJoinEvent;
-/// 玩家断开连接前事件，不可取消。
-pub struct PlayerDisconnectEvent;
-/// 玩家聊天事件，支持读取消息和取消。
-pub struct PlayerChatEvent;
+pub trait ActorEvent: MainThreadEvent {}
+pub trait MobEvent: ActorEvent {}
 
-macro_rules! player_event {
-    ($ty:ident, $kind:ident) => {
+macro_rules! event {
+    ($ty:ident, $kind:ident $(, $capability:ident)*) => {
+        pub struct $ty;
         impl sealed::Sealed for $ty {}
         impl MainThreadEvent for $ty {
             const KIND: EventKind = EventKind::$kind;
         }
-        impl PlayerEvent for $ty {}
+        $(impl $capability for $ty {})*
     };
 }
-player_event!(PlayerJoinEvent, PLAYER_JOIN);
-player_event!(PlayerDisconnectEvent, PLAYER_DISCONNECT);
-player_event!(PlayerChatEvent, PLAYER_CHAT);
-impl CancellableEvent for PlayerJoinEvent {}
-impl CancellableEvent for PlayerChatEvent {}
+event!(
+    PlayerJoinEvent,
+    PLAYER_JOIN,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(
+    PlayerDisconnectEvent,
+    PLAYER_DISCONNECT,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent
+);
+event!(
+    PlayerChatEvent,
+    PLAYER_CHAT,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(ExecutingCommandEvent, EXECUTING_COMMAND, CancellableEvent);
+event!(ExecutedCommandEvent, EXECUTED_COMMAND);
+event!(ServerCommandRegisterEvent, SERVER_COMMAND_REGISTER);
+event!(ActorHurtEvent, ACTOR_HURT, ActorEvent, CancellableEvent);
+event!(MobDieEvent, MOB_DIE, ActorEvent, MobEvent);
+pub struct ConsoleOutputtingEvent;
+impl sealed::Sealed for ConsoleOutputtingEvent {}
+impl EmitterThreadEvent for ConsoleOutputtingEvent {
+    const KIND: EventKind = EventKind::CONSOLE_OUTPUTTING;
+}
+impl ConsoleEvent for ConsoleOutputtingEvent {}
+pub struct ConsoleOutputtedEvent;
+impl sealed::Sealed for ConsoleOutputtedEvent {}
+impl EmitterThreadEvent for ConsoleOutputtedEvent {
+    const KIND: EventKind = EventKind::CONSOLE_OUTPUTTED;
+}
+impl ConsoleEvent for ConsoleOutputtedEvent {}
+event!(
+    PlayerAddExperienceEvent,
+    PLAYER_ADD_EXPERIENCE,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(
+    PlayerAttackEvent,
+    PLAYER_ATTACK,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(
+    PlayerChangePermEvent,
+    PLAYER_CHANGE_PERM,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(
+    PlayerConnectEvent,
+    PLAYER_CONNECT,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(
+    PlayerDestroyBlockEvent,
+    PLAYER_DESTROY_BLOCK,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(
+    PlayerDieEvent,
+    PLAYER_DIE,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent
+);
+event!(
+    PlayerInteractBlockEvent,
+    PLAYER_INTERACT_BLOCK,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(
+    PlayerJumpEvent,
+    PLAYER_JUMP,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(
+    PlayerPickUpItemEvent,
+    PLAYER_PICK_UP_ITEM,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(
+    PlayerPlacingBlockEvent,
+    PLAYER_PLACING_BLOCK,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(
+    PlayerPlacedBlockEvent,
+    PLAYER_PLACED_BLOCK,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent
+);
+event!(
+    PlayerRespawnEvent,
+    PLAYER_RESPAWN,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent
+);
+event!(
+    PlayerSneakingEvent,
+    PLAYER_SNEAKING,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(
+    PlayerSneakedEvent,
+    PLAYER_SNEAKED,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(
+    PlayerSprintingEvent,
+    PLAYER_SPRINTING,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent
+);
+event!(
+    PlayerSprintedEvent,
+    PLAYER_SPRINTED,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent
+);
+event!(
+    PlayerSwingEvent,
+    PLAYER_SWING,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent
+);
+event!(
+    PlayerUseItemEvent,
+    PLAYER_USE_ITEM,
+    ActorEvent,
+    MobEvent,
+    PlayerEvent,
+    CancellableEvent
+);
+event!(ServerStartedEvent, SERVER_STARTED);
+event!(ServerStoppingEvent, SERVER_STOPPING);
+pub struct ServiceRegisterEvent;
+impl sealed::Sealed for ServiceRegisterEvent {}
+impl EmitterThreadEvent for ServiceRegisterEvent {
+    const KIND: EventKind = EventKind::SERVICE_REGISTER;
+}
+pub struct ServiceUnregisterEvent;
+impl sealed::Sealed for ServiceUnregisterEvent {}
+impl EmitterThreadEvent for ServiceUnregisterEvent {
+    const KIND: EventKind = EventKind::SERVICE_UNREGISTER;
+}
+event!(BlockChangedEvent, BLOCK_CHANGED);
+event!(FireSpreadEvent, FIRE_SPREAD, CancellableEvent);
+event!(ServerLevelTickEvent, SERVER_LEVEL_TICK);
+event!(SpawningMobEvent, SPAWNING_MOB, CancellableEvent);
+event!(SpawnedMobEvent, SPAWNED_MOB);
 
 #[derive(Copy, Clone)]
 pub struct Events {
@@ -129,6 +322,133 @@ impl Events {
     }
 }
 
+/// 借用的数据在本次回调期间有效。此接口只提供值数据。
+pub struct ThreadEventCtx<'a, E: EmitterThreadEvent> {
+    payload: &'a str,
+    message: &'a str,
+    cancelled: bool,
+    cancel_requested: bool,
+    _event: PhantomData<E>,
+}
+impl<E: EmitterThreadEvent> ThreadEventCtx<'_, E> {
+    pub fn payload_snbt(&self) -> &str {
+        self.payload
+    }
+}
+impl<E: ConsoleEvent> ThreadEventCtx<'_, E> {
+    pub fn message(&self) -> &str {
+        self.message
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled || self.cancel_requested
+    }
+}
+impl ThreadEventCtx<'_, ConsoleOutputtingEvent> {
+    pub fn cancel(&mut self) {
+        self.cancel_requested = true;
+    }
+}
+
+struct ThreadCallback<F> {
+    ctx: ModContextHandle,
+    callback: F,
+    poisoned: std::sync::atomic::AtomicBool,
+}
+
+impl Events {
+    /// 在主线程注册；LL 在事件产生的线程同步调用，可以从多个线程同时进入。
+    pub fn subscribe_sync<E: EmitterThreadEvent>(
+        &self,
+        _token: &MainThreadToken<'_>,
+        priority: EventPriority,
+        callback: impl Fn(&mut ThreadEventCtx<'_, E>) -> Result<()> + Send + Sync + 'static,
+    ) -> Result<ListenerHandle> {
+        fn register<E, F>(
+            ctx: ModContextHandle,
+            priority: EventPriority,
+            callback: F,
+        ) -> Result<ListenerHandle>
+        where
+            E: EmitterThreadEvent,
+            F: Fn(&mut ThreadEventCtx<'_, E>) -> Result<()> + Send + Sync + 'static,
+        {
+            let subscribe = host::event_api()?.subscribe_sync()?;
+            let sub = EventSubscriptionV1 {
+                struct_size: size_of::<EventSubscriptionV1>() as u32,
+                kind: E::KIND,
+                priority: priority.to_abi(),
+            };
+            let env = Box::into_raw(Box::new(ThreadCallback {
+                ctx,
+                callback,
+                poisoned: false.into(),
+            }));
+            let callback = ferrum_abi::ThreadEventCallbackV1 {
+                env: env.cast(),
+                invoke_fn: invoke_thread::<E, F>,
+                drop_fn: drop_thread::<F>,
+            };
+            let mut out = MaybeUninit::uninit();
+            let status = subscribe(ctx, &sub, callback, out.as_mut_ptr());
+            if !status.is_ok() {
+                let error = host::error_from_status(status);
+                drop_thread::<F>(env.cast());
+                return Err(error);
+            }
+            // SAFETY: 注册成功时宿主初始化句柄并接管 env。
+            Ok(unsafe { out.assume_init() })
+        }
+        register::<E, _>(self.ctx, priority, callback)
+    }
+}
+extern "C" fn invoke_thread<E, F>(
+    raw: *mut c_void,
+    payload: ferrum_abi::FfiStr<'_>,
+    message: ferrum_abi::FfiStr<'_>,
+    cancelled: FfiBool,
+    out: *mut FfiBool,
+) -> FerrumStatus
+where
+    E: EmitterThreadEvent,
+    F: Fn(&mut ThreadEventCtx<'_, E>) -> Result<()> + Send + Sync,
+{
+    use std::sync::atomic::Ordering;
+    // SAFETY: 活跃派发保有 env，F 为 Sync，仅通过共享引用调用。
+    let env = unsafe { &*raw.cast::<ThreadCallback<F>>() };
+    if env.poisoned.load(Ordering::Acquire) {
+        return FerrumStatus::CALLBACK_POISONED;
+    }
+    let status = firewall::firewall(env.ctx, || {
+        // SAFETY: 两个视图都由宿主借出至本次调用返回。
+        let (payload, message) = unsafe { (payload.to_str(), message.to_str()) };
+        let utf8 = |_| crate::Error::new(FerrumStatus::INVALID_UTF8, "事件文本不是 UTF-8");
+        let mut event = ThreadEventCtx {
+            payload: payload.map_err(utf8)?,
+            message: message.map_err(utf8)?,
+            cancelled: cancelled.get(),
+            cancel_requested: false,
+            _event: PhantomData,
+        };
+        let result = (env.callback)(&mut event);
+        // SAFETY: 宿主提供本次调用独占的可写 FfiBool。
+        unsafe { out.write(event.cancel_requested.into()) };
+        result
+    });
+    if status == FerrumStatus::MOD_PANICKED {
+        env.poisoned.store(true, Ordering::Release);
+    }
+    status
+}
+
+extern "C" fn drop_thread<F>(raw: *mut c_void) {
+    // SAFETY: 注册失败或最后一个活跃派发结束后，宿主只归还一次所有权。
+    let env = unsafe { Box::from_raw(raw.cast::<ThreadCallback<F>>()) };
+    let _ = firewall::firewall(env.ctx, || {
+        drop(env);
+        Ok(())
+    });
+}
+
 struct CallbackEnv<F> {
     ctx: ModContextHandle,
     in_call: Cell<bool>,
@@ -187,6 +507,28 @@ pub struct EventCtx<'tick, E: MainThreadEvent> {
     scope: EventScopeHandle,
     token: &'tick MainThreadToken<'tick>,
     _event: PhantomData<E>,
+}
+
+impl<E: MainThreadEvent> EventCtx<'_, E> {
+    /// LL 在本监听器收到事件时序列化的 SNBT 快照。字段取决于 LL 版本。
+    pub fn payload_snbt(&self) -> Result<String> {
+        let read = host::event_api()?.payload_snbt()?;
+        host::read_string(|out| read(self.ctx, self.scope, out))
+    }
+}
+
+impl<'tick, E: ActorEvent> EventCtx<'tick, E> {
+    pub fn actor(&self) -> Result<crate::ActorRef<'tick>> {
+        let mut id = ferrum_abi::ActorRuntimeId::default();
+        host::check((host::event_api()?.actor()?)(self.ctx, self.scope, &mut id))?;
+        Ok(crate::ActorRef::new(id, self.token))
+    }
+}
+
+impl<'tick, E: MobEvent> EventCtx<'tick, E> {
+    pub fn mob(&self) -> Result<crate::MobRef<'tick>> {
+        Ok(crate::MobRef::from_actor(self.actor()?))
+    }
 }
 
 impl<'tick, E: PlayerEvent> EventCtx<'tick, E> {

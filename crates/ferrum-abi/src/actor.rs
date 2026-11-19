@@ -1,4 +1,4 @@
-use crate::{FerrumStatus, FfiByteWriter};
+use crate::{FerrumStatus, FfiBool, FfiByteWriter, FfiStr};
 
 /// 当次会话内的实体标识；跨 Tick 保存请使用 ActorUniqueId 或 PlayerUuid。
 #[repr(transparent)]
@@ -52,6 +52,10 @@ pub struct ActorApiV1 {
     pub position: extern "C" fn(ActorRuntimeId, *mut Vec3) -> FerrumStatus,
     pub dimension: extern "C" fn(ActorRuntimeId, *mut DimensionId) -> FerrumStatus,
     pub teleport: extern "C" fn(ActorRuntimeId, Vec3, DimensionId) -> FerrumStatus,
+    pub name_tag: extern "C" fn(ActorRuntimeId, *mut FfiByteWriter) -> FerrumStatus,
+    pub set_name_tag: extern "C" fn(ActorRuntimeId, FfiStr<'_>) -> FerrumStatus,
+    pub is_on_ground: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus,
+    pub is_in_water: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus,
 }
 
 /// 生物能力。非生物返回 INVALID_ARGUMENT；目标消失返回 NOT_FOUND。
@@ -62,4 +66,6 @@ pub struct MobApiV1 {
     pub health: extern "C" fn(ActorRuntimeId, *mut f32) -> FerrumStatus,
     pub max_health: extern "C" fn(ActorRuntimeId, *mut f32) -> FerrumStatus,
     pub set_health: extern "C" fn(ActorRuntimeId, f32) -> FerrumStatus,
+    pub is_sprinting: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus,
+    pub set_sprinting: extern "C" fn(ActorRuntimeId, FfiBool) -> FerrumStatus,
 }

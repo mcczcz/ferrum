@@ -8,6 +8,7 @@
 | --- | --- |
 | 生命周期、日志、目录 | 1.0 |
 | 玩家、实体、方块、命令、事件 | 1.1 |
+| 扩展实体接口、完整 LL 官方事件及触发线程订阅 | 1.2（当前开发版） |
 | 主线程投递、Tick 定时任务、异步等待主线程结果 | 1.2 |
 
 ## 入口与生命周期
@@ -137,9 +138,9 @@ panic 行为：
 
 | 引用 | trait | 方法 |
 | --- | --- | --- |
-| `ActorRef` / `MobRef` / `PlayerRef` | `ActorOps` | `runtime_id()`、`unique_id()`、`type_name()`、`kind()`、`position()`、`dimension()`、`teleport(pos, dim)` |
-| `MobRef` / `PlayerRef` | `MobOps` | `health()`、`max_health()`、`set_health(v)` |
-| `PlayerRef` | 固有方法 | `real_name()`、`uuid()`、`send_message(text)`、`is_operator()`、`game_mode()`、`set_game_mode(m)` |
+| `ActorRef` / `MobRef` / `PlayerRef` | `ActorOps` | `runtime_id()`、`unique_id()`、`type_name()`、`kind()`、`position()`、`dimension()`、`teleport(pos, dim)`、`name_tag()`、`set_name_tag(name)`、`is_on_ground()`、`is_in_water()` |
+| `MobRef` / `PlayerRef` | `MobOps` | `health()`、`max_health()`、`set_health(v)`、`is_sprinting()`、`set_sprinting(enabled)` |
+| `PlayerRef` | 固有方法 | `real_name()`、`uuid()`、`send_message(text)`、`is_operator()`、`game_mode()`、`set_game_mode(m)`、`is_hungry()`、`xp_earned_at_current_level()`、`xp_needed_for_next_level()`、`add_experience(points)` |
 
 转换：
 
@@ -243,9 +244,9 @@ ctx.events().unsubscribe(token, h)?; // 可选，提前移除
 | `PlayerChatEvent` | 同上 | `message()`，只读副本 |
 | `PlayerDisconnectEvent` | 无 | - |
 
-所有事件有 `player() -> Result<PlayerRef>`。优先级 `Highest` 到 `Lowest`。回调返回 `Err` 只记日志，不隐式取消。`ListenerHandle` 丢弃时不会注销；停用、启用失败、卸载时自动清理。
+玩家事件提供 `player() -> Result<PlayerRef>`。优先级 `Highest` 到 `Lowest`。回调返回 `Err` 只记日志，不隐式取消。`ListenerHandle` 丢弃时不会注销；停用、启用失败、卸载时自动清理。
 
-跨语言自定义事件（`ctx.custom_events()`）与完整规则见 [events.md](./events.md)。
+完整官方事件清单、控制台与服务事件的同步订阅示例，以及跨语言自定义事件用法见 [events.md](./events.md)。
 
 ## 主线程调度与异步调用
 

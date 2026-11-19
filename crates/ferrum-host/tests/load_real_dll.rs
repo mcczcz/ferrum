@@ -92,6 +92,10 @@ unavailable!(block_runtime(DimensionId, BlockPos, *mut BlockRuntimeId));
 unavailable!(block_air(DimensionId, BlockPos, *mut FfiBool));
 unavailable!(block_set_type(DimensionId, BlockPos, FfiStr<'_>));
 
+unavailable!(mob_sprint(ActorRuntimeId, FfiBool));
+unavailable!(player_int(ActorRuntimeId, *mut i32));
+unavailable!(player_add(ActorRuntimeId, i32));
+
 fn example_dll() -> Option<PathBuf> {
     let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
     ["debug", "release"]
@@ -125,6 +129,8 @@ fn load_enable_disable_unload_reload() {
         command_output,
         event_subscribe,
         event_unsubscribe,
+        event_payload_snbt: event_message,
+        event_actor: command_origin,
         event_player: command_origin,
         event_is_cancelled: event_cancelled,
         event_cancel,
@@ -141,12 +147,18 @@ fn load_enable_disable_unload_reload() {
             position: player_position,
             dimension: player_dimension,
             teleport: player_teleport,
+            name_tag: player_real_name,
+            set_name_tag: player_message,
+            is_on_ground: player_operator,
+            is_in_water: player_operator,
         },
         mob_v1: MobApiV1 {
             struct_size: size_of::<MobApiV1>() as u32,
             health: player_health,
             max_health: player_health,
             set_health: player_set_health,
+            is_sprinting: player_operator,
+            set_sprinting: mob_sprint,
         },
         block_v1: BlockApiV1 {
             struct_size: size_of::<BlockApiV1>() as u32,
@@ -172,6 +184,10 @@ fn load_enable_disable_unload_reload() {
             set_health: player_set_health,
             game_mode: player_game_mode,
             set_game_mode: player_set_game_mode,
+            xp_earned_at_current_level: player_int,
+            xp_needed_for_next_level: player_int,
+            add_experience: player_add,
+            is_hungry: player_operator,
         },
     };
     // SAFETY: shim 函数为 'static。

@@ -1,4 +1,5 @@
 use crate::{ActorOps, ActorRef, PlayerRef, Result, host, sealed};
+use ferrum_abi::FfiBool;
 
 /// 生物能力层，通过组合复用 ActorRef；不持有 C++ Mob 指针。
 #[derive(Copy, Clone, Debug)]
@@ -51,5 +52,19 @@ pub trait MobOps<'tick>: ActorOps<'tick> {
     /// 直接设置有限的 0..=max_health 属性值，不模拟受伤/治疗。
     fn set_health(&self, value: f32) -> Result<()> {
         host::check((host::mob_api()?.set_health()?)(self.runtime_id(), value))
+    }
+    fn is_sprinting(&self) -> Result<bool> {
+        let mut out = FfiBool::FALSE;
+        host::check((host::mob_api()?.is_sprinting()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out.get())
+    }
+    fn set_sprinting(&self, sprinting: bool) -> Result<()> {
+        host::check((host::mob_api()?.set_sprinting()?)(
+            self.runtime_id(),
+            sprinting.into(),
+        ))
     }
 }

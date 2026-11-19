@@ -4,20 +4,28 @@
 
 | 类型 | 入口 | 用途 |
 | :--- | :--- | :--- |
-| 玩家事件 | `ctx.events()` | 订阅加入、断开、聊天 |
+| LL 官方事件 | `ctx.events()` | 玩家、实体、世界、命令、服务、服务器和控制台事件 |
 | 自定义事件 | `ctx.custom_events()` | Rust 与 native C++ 模组互相发布、订阅 |
 
-ABI 1.1。宿主没有对应子表时，调用返回 `Unsupported`。
+加入、断开和聊天事件从 ABI 1.1 起可用。其余官方事件及 `payload_snbt()` 已纳入当前 ABI 1.2 开发版。
 
-## 玩家事件
+## LL 官方事件
 
-| 事件 | 可取消 | 额外方法 |
-| :--- | :--- | :--- |
-| `PlayerJoinEvent`（初始化阶段） | 是 | |
-| `PlayerDisconnectEvent`（断开前） | 否 | |
-| `PlayerChatEvent` | 是 | `message() -> Result<String>`（只读） |
+LeviLamina 26.60.7 服务端提供以下具体事件。类型均从 `ferrum_sdk::events` 导入。表中 **粗体** 表示可取消。
 
-所有事件有 `player() -> Result<PlayerRef>`。可取消事件有 `cancel()`、`is_cancelled()`。
+| 类别 | 事件 |
+| --- | --- |
+| 玩家 | **`PlayerJoinEvent`**、`PlayerDisconnectEvent`、**`PlayerChatEvent`**、**`PlayerAddExperienceEvent`**、**`PlayerAttackEvent`**、**`PlayerChangePermEvent`**、**`PlayerConnectEvent`**、**`PlayerDestroyBlockEvent`**、`PlayerDieEvent`、**`PlayerInteractBlockEvent`**、**`PlayerJumpEvent`**、**`PlayerPickUpItemEvent`**、**`PlayerPlacingBlockEvent`**、`PlayerPlacedBlockEvent`、`PlayerRespawnEvent`、**`PlayerSneakingEvent`**、**`PlayerSneakedEvent`**、`PlayerSprintingEvent`、`PlayerSprintedEvent`、`PlayerSwingEvent`、**`PlayerUseItemEvent`** |
+| 实体 | **`ActorHurtEvent`**、`MobDieEvent` |
+| 世界 | `BlockChangedEvent`、**`FireSpreadEvent`**、`ServerLevelTickEvent`、**`SpawningMobEvent`**、`SpawnedMobEvent` |
+| 命令 | **`ExecutingCommandEvent`**、`ExecutedCommandEvent`、`ServerCommandRegisterEvent` |
+| 服务器 | `ServerStartedEvent`、`ServerStoppingEvent` |
+| 服务 | `ServiceRegisterEvent`、`ServiceUnregisterEvent` |
+| 控制台 | **`ConsoleOutputtingEvent`**、`ConsoleOutputtedEvent` |
+
+### 主线程事件
+
+用 `subscribe::<E>()` 订阅玩家、实体、世界、命令和服务器事件。回调可以读取 `payload_snbt()?`，它返回 LL 在本监听器开始时序列化的字段快照，具体字段随 LL 版本变化。实体事件还可以用 `actor()?` 获取主体，生物和玩家事件分别提供 `mob()?` 和 `player()?`。聊天事件另有 `message()?`。订阅只接收注册并启用模组之后的事件。
 
 ```rust
 use ferrum_sdk::events::{EventPriority, PlayerChatEvent, PlayerJoinEvent};
@@ -48,6 +56,23 @@ ctx.events().unsubscribe(token, listener)?; // 可选，提前移除
 - 回调是 `FnMut + 'static`，可以捕获 `Rc`，不能借用 `&mut self`。`event`、`player`、`token` 不能带出回调。
 - `ListenerHandle` 丢弃不退订。手动退订、启用失败、停用、卸载时清理。回调内可退订自身，闭包在调用结束后析构。
 - 同一回调重入会被跳过并限频告警。回调 panic：监听器被摘除。
+
+### 在 LL 触发线程同步处理
+
+控制台和服务事件使用 `subscribe_sync::<E>()`。回调要求 `Fn + Send + Sync`，可由多个线程同时执行，只能通过事件上下文读取值数据。控制台事件可直接读取 `message()` 和 `is_cancelled()`。输出前调用 `cancel()` 会在 LL 继续派发前生效。服务事件的 SNBT 包含 `serviceName` 和 `serviceVersion`。
+
+```rust
+use ferrum_sdk::events::{ConsoleOutputtingEvent, EventPriority};
+
+ctx.events().subscribe_sync::<ConsoleOutputtingEvent>(token, EventPriority::High, |event| {
+    if event.message().starts_with("[private]") {
+        event.cancel();
+    }
+    Ok(())
+})?;
+```
+
+同一监听器在同一线程递归触发时跳过内层调用。Rust 回调 panic 后被毒化，宿主在主线程清理监听器。
 
 ## 自定义事件
 

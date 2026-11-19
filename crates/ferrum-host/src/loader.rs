@@ -313,32 +313,62 @@ pub fn disable(raw: u64) -> FerrumStatus {
 ///
 /// 每次成功的 `enter` 必须配一次 [`leave`]；优先用 [`Invocation`] 守卫。
 pub(crate) fn enter(entry: &ModEntry) -> Result<(), FerrumStatus> {
+    let mut own = entry.ownership.lock().unwrap_or_else(|e| e.into_inner());
     if entry.state() != ModState::Enabled {
         return Err(FerrumStatus::MOD_DISABLED);
     }
-    entry
-        .ownership
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .active_invocations += 1;
+    own.active_invocations += 1;
     Ok(())
 }
 
 /// 结束一次回调；最外层回调结束且停用被推迟时，在此完成停用。
 pub(crate) fn leave(ctx: ModContextHandle, entry: &ModEntry) {
+    leave_invocation(ctx, entry, false);
+}
+
+fn leave_invocation(ctx: ModContextHandle, entry: &ModEntry, on_worker: bool) {
     let pending = {
         let mut own = entry.ownership.lock().unwrap_or_else(|e| e.into_inner());
         own.active_invocations -= 1;
         own.pending_disable && own.active_invocations == 0
     };
     if pending {
+        if on_worker {
+            PENDING_DISABLE
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(ctx);
+        } else {
+            finish_pending_disable(ctx, entry);
+        }
+    }
+}
+
+static PENDING_DISABLE: std::sync::Mutex<Vec<ModContextHandle>> = std::sync::Mutex::new(Vec::new());
+
+fn finish_pending_disable(ctx: ModContextHandle, entry: &ModEntry) {
+    let ready = {
+        let mut own = entry.ownership.lock().unwrap_or_else(|e| e.into_inner());
+        own.active_invocations == 0 && std::mem::take(&mut own.pending_disable)
+    };
+    if ready {
         finish_disable(ctx, entry);
+    }
+}
+
+pub(crate) fn drain_pending_disables() {
+    let pending = std::mem::take(&mut *PENDING_DISABLE.lock().unwrap_or_else(|e| e.into_inner()));
+    for ctx in pending {
+        if let Ok(entry) = runtime::lookup(ctx) {
+            finish_pending_disable(ctx, &entry);
+        }
     }
 }
 
 /// [`enter`] / [`leave`] 的 RAII 守卫：宿主代码 panic 展开时计数同样会配平，
 /// 避免模组永久卡在 `Disabling`。
 pub(crate) struct Invocation {
+    on_worker: bool,
     ctx: ModContextHandle,
     entry: Arc<ModEntry>,
 }
@@ -346,13 +376,25 @@ pub(crate) struct Invocation {
 impl Invocation {
     pub(crate) fn begin(ctx: ModContextHandle, entry: Arc<ModEntry>) -> Result<Self, FerrumStatus> {
         enter(&entry)?;
-        Ok(Self { ctx, entry })
+        Ok(Self {
+            ctx,
+            entry,
+            on_worker: false,
+        })
+    }
+    pub(crate) fn begin_on_emitter(
+        ctx: ModContextHandle,
+        entry: Arc<ModEntry>,
+    ) -> Result<Self, FerrumStatus> {
+        let mut guard = Self::begin(ctx, entry)?;
+        guard.on_worker = !vtable::is_main_thread();
+        Ok(guard)
     }
 }
 
 impl Drop for Invocation {
     fn drop(&mut self) {
-        leave(self.ctx, &self.entry);
+        leave_invocation(self.ctx, &self.entry, self.on_worker);
     }
 }
 
@@ -386,6 +428,12 @@ pub fn unload(raw: u64) -> FerrumStatus {
         Ok(v) => v,
         Err(s) => return s,
     };
+    if entry.state() == ModState::Disabling && vtable::is_main_thread() {
+        finish_pending_disable(ctx, &entry);
+        if entry.state() == ModState::Disabling {
+            return FerrumStatus::REENTRANT_CALL;
+        }
+    }
     let has_resources = {
         let own = entry.ownership.lock().unwrap_or_else(|e| e.into_inner());
         !own.commands.is_empty()
@@ -413,6 +461,9 @@ pub fn unload(raw: u64) -> FerrumStatus {
         if !status.is_ok() {
             return status;
         }
+    }
+    if entry.state() == ModState::Disabling {
+        return FerrumStatus::REENTRANT_CALL;
     }
     let Some(descriptor) = entry.descriptor().copied() else {
         return fail(FerrumStatus::INTERNAL_ERROR, "模组缺少描述符");

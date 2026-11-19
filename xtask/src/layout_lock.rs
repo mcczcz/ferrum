@@ -52,6 +52,7 @@ macro_rules! lock {
 /// 已发布类型的布局断言。新增类型或尾追加字段时在此登记。
 fn assertions() -> Vec<String> {
     let mut out = Vec::new();
+    lock!(out, ThreadEventCallbackV1, env, invoke_fn, drop_fn);
     lock!(out, AbiVersion, major, minor, patch);
     lock!(out, FerrumStatus);
     lock!(out, FfiBool);
@@ -75,9 +76,22 @@ fn assertions() -> Vec<String> {
         kind,
         position,
         dimension,
-        teleport
+        teleport,
+        name_tag,
+        set_name_tag,
+        is_on_ground,
+        is_in_water
     );
-    lock!(out, MobApiV1, struct_size, health, max_health, set_health);
+    lock!(
+        out,
+        MobApiV1,
+        struct_size,
+        health,
+        max_health,
+        set_health,
+        is_sprinting,
+        set_sprinting
+    );
     lock!(
         out,
         BlockApiV1,
@@ -109,7 +123,11 @@ fn assertions() -> Vec<String> {
         max_health,
         set_health,
         game_mode,
-        set_game_mode
+        set_game_mode,
+        xp_earned_at_current_level,
+        xp_needed_for_next_level,
+        add_experience,
+        is_hungry
     );
     lock!(out, CommandHandle);
     lock!(out, TaskHandle);
@@ -204,7 +222,10 @@ fn assertions() -> Vec<String> {
         player,
         is_cancelled,
         cancel,
-        chat_message
+        chat_message,
+        payload_snbt,
+        actor,
+        subscribe_sync
     );
     lock!(out, CommandScopeHandle);
     lock!(out, CommandPermission);

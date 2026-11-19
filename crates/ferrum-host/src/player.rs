@@ -60,6 +60,18 @@ extern "C" fn set_game_mode(id: ActorRuntimeId, value: GameMode) -> FerrumStatus
     call(|a| (a.set_game_mode)(id, value))
 }
 
+extern "C" fn xp_earned_at_current_level(id: ActorRuntimeId, out: *mut i32) -> FerrumStatus {
+    call(|a| (a.xp_earned_at_current_level)(id, out))
+}
+extern "C" fn xp_needed_for_next_level(id: ActorRuntimeId, out: *mut i32) -> FerrumStatus {
+    call(|a| (a.xp_needed_for_next_level)(id, out))
+}
+extern "C" fn add_experience(id: ActorRuntimeId, value: i32) -> FerrumStatus {
+    call(|a| (a.add_experience)(id, value))
+}
+extern "C" fn is_hungry(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
+    call(|a| (a.is_hungry)(id, out))
+}
 pub static PLAYER_V1: PlayerApiV1 = PlayerApiV1 {
     struct_size: size_of::<PlayerApiV1>() as u32,
     find_by_name,
@@ -77,4 +89,8 @@ pub static PLAYER_V1: PlayerApiV1 = PlayerApiV1 {
     set_health,
     game_mode,
     set_game_mode,
+    xp_earned_at_current_level,
+    xp_needed_for_next_level,
+    add_experience,
+    is_hungry,
 };

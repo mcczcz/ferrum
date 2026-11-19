@@ -153,6 +153,10 @@ domain_api!(PlayerApi, player_api, PlayerApiV1, "ferrum.player.v1",
     is_operator: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
     game_mode: extern "C" fn(ActorRuntimeId, *mut GameMode) -> FerrumStatus;
     set_game_mode: extern "C" fn(ActorRuntimeId, GameMode) -> FerrumStatus;
+    xp_earned_at_current_level: extern "C" fn(ActorRuntimeId, *mut i32) -> FerrumStatus;
+    xp_needed_for_next_level: extern "C" fn(ActorRuntimeId, *mut i32) -> FerrumStatus;
+    add_experience: extern "C" fn(ActorRuntimeId, i32) -> FerrumStatus;
+    is_hungry: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
 });
 
 domain_api!(CustomEventPublisherApi, custom_event_publisher_api, CustomEventPublisherApiV1, "ferrum.custom_event_publisher.v1",
@@ -186,6 +190,9 @@ domain_api!(EventApi, event_api, EventApiV1, "ferrum.event.v1",
     is_cancelled: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, *mut FfiBool) -> FerrumStatus;
     cancel: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle) -> FerrumStatus;
     chat_message: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, *mut FfiByteWriter) -> FerrumStatus;
+    payload_snbt: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, *mut FfiByteWriter) -> FerrumStatus;
+    actor: extern "C" fn(ModContextHandle, ferrum_abi::EventScopeHandle, *mut ActorRuntimeId) -> FerrumStatus;
+    subscribe_sync: extern "C" fn(ModContextHandle, *const ferrum_abi::EventSubscriptionV1, ferrum_abi::ThreadEventCallbackV1, *mut ferrum_abi::ListenerHandle) -> FerrumStatus;
 });
 
 domain_api!(CommandApi, command_api, CommandApiV1, "ferrum.command.v1",
@@ -218,6 +225,10 @@ domain_api!(ActorApi, actor_api, ActorApiV1, "ferrum.actor.v1",
     position: extern "C" fn(ActorRuntimeId, *mut Vec3) -> FerrumStatus;
     dimension: extern "C" fn(ActorRuntimeId, *mut DimensionId) -> FerrumStatus;
     teleport: extern "C" fn(ActorRuntimeId, Vec3, DimensionId) -> FerrumStatus;
+    name_tag: extern "C" fn(ActorRuntimeId, *mut FfiByteWriter) -> FerrumStatus;
+    set_name_tag: extern "C" fn(ActorRuntimeId, FfiStr<'_>) -> FerrumStatus;
+    is_on_ground: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    is_in_water: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
 });
 
 domain_api!(MobApi, mob_api, MobApiV1, "ferrum.mob.v1",
@@ -225,6 +236,8 @@ domain_api!(MobApi, mob_api, MobApiV1, "ferrum.mob.v1",
     health: extern "C" fn(ActorRuntimeId, *mut f32) -> FerrumStatus;
     max_health: extern "C" fn(ActorRuntimeId, *mut f32) -> FerrumStatus;
     set_health: extern "C" fn(ActorRuntimeId, f32) -> FerrumStatus;
+    is_sprinting: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    set_sprinting: extern "C" fn(ActorRuntimeId, FfiBool) -> FerrumStatus;
 });
 
 /// 宿主调用失败后立即取回 last-error，组装为 [`Error`]。

@@ -1,17 +1,44 @@
 #include "ferrum/EventApi.h"
-#include "I18n/I18n.h"
 #include "ferrum/FerrumModManager.h"
 #include "ll/api/event/EventBus.h"
+#include "ll/api/event/command/ExecuteCommandEvent.h"
+#include "ll/api/event/command/ServerCommandRegisterEvent.h"
+#include "ll/api/event/entity/ActorHurtEvent.h"
+#include "ll/api/event/entity/MobDieEvent.h"
+#include "ll/api/event/io/ConsoleOutputEvent.h"
+#include "ll/api/event/player/PlayerAddExperienceEvent.h"
+#include "ll/api/event/player/PlayerAttackEvent.h"
+#include "ll/api/event/player/PlayerChangePermEvent.h"
 #include "ll/api/event/player/PlayerChatEvent.h"
+#include "ll/api/event/player/PlayerConnectEvent.h"
+#include "ll/api/event/player/PlayerDestroyBlockEvent.h"
+#include "ll/api/event/player/PlayerDieEvent.h"
 #include "ll/api/event/player/PlayerDisconnectEvent.h"
+#include "ll/api/event/player/PlayerInteractBlockEvent.h"
 #include "ll/api/event/player/PlayerJoinEvent.h"
+#include "ll/api/event/player/PlayerJumpEvent.h"
+#include "ll/api/event/player/PlayerPickUpItemEvent.h"
+#include "ll/api/event/player/PlayerPlaceBlockEvent.h"
+#include "ll/api/event/player/PlayerRespawnEvent.h"
+#include "ll/api/event/player/PlayerSneakEvent.h"
+#include "ll/api/event/player/PlayerSprintEvent.h"
+#include "ll/api/event/player/PlayerSwingEvent.h"
+#include "ll/api/event/player/PlayerUseItemEvent.h"
+#include "ll/api/event/server/ServerStartedEvent.h"
+#include "ll/api/event/server/ServerStoppingEvent.h"
+#include "ll/api/event/service/ServiceEvents.h"
+#include "ll/api/event/world/BlockChangedEvent.h"
+#include "ll/api/event/world/FireSpreadEvent.h"
+#include "ll/api/event/world/ServerLevelTickEvent.h"
+#include "ll/api/event/world/SpawnMobEvent.h"
 #include "ll/api/service/Bedrock.h"
 #include "ll/api/utils/ErrorUtils.h"
 #include "mc/legacy/ActorRuntimeID.h"
 #include "mc/world/level/Level.h"
 #include <map>
+#include "mc/deps/nbt/CompoundTag.h"
+#include <optional>
 #include <type_traits>
-#include <variant>
 
 namespace ferrum {
 template <class F>
@@ -25,11 +52,13 @@ static FerrumStatus eventGuard(F&& f) noexcept {
     }
 }
 
-using EventView =
-    std::variant<ll::event::PlayerJoinEvent*, ll::event::PlayerDisconnectEvent*, ll::event::PlayerChatEvent*>;
 struct EventScope {
-    ActorRuntimeId mPlayer;
-    EventView      mEvent;
+    std::optional<ActorRuntimeId> mActor;
+    bool                          mPlayer{};
+    std::string                   mPayload;
+    std::optional<std::string>    mChat;
+    std::optional<bool>           mCancelled;
+    std::function<void()>         mCancel;
 };
 struct EventRoute {
     std::weak_ptr<FerrumMod> mOwner;
@@ -39,25 +68,66 @@ static std::map<uint64_t, EventRoute>               sListeners;
 static thread_local std::map<uint64_t, EventScope*> sScopes;
 static thread_local uint64_t                        sNextScope = 0;
 
+static FerrumStatus dispatch(ListenerHandle handle, EventScope& scope) {
+    if (!ferrum_host_is_main_thread()) return FerrumStatus_WRONG_THREAD;
+    auto id = ++sNextScope;
+    sScopes.emplace(id, &scope);
+    auto status = ferrum_host_dispatch_event(handle, id);
+    sScopes.erase(id);
+    return status;
+}
+
+template <class E>
+static EventScope snapshot(E& event) {
+    EventScope  scope;
+    CompoundTag data;
+    event.serialize(data);
+    if constexpr (std::is_base_of_v<ll::event::ServiceEvent, E>) {
+        if (auto const& service = event.service()) {
+            auto id = service->getServiceId();
+            data.putString("serviceName", id.name);
+            data.putInt64("serviceVersion", static_cast<int64_t>(id.version));
+        }
+    }
+    scope.mPayload = data.toSnbt(SnbtFormat::Minimize);
+    if constexpr (std::is_base_of_v<ll::event::ActorEvent, E>) {
+        scope.mActor  = event.self().getRuntimeID().rawID;
+        scope.mPlayer = std::is_base_of_v<ll::event::PlayerEvent, E>;
+    }
+    if constexpr (std::is_same_v<ll::event::PlayerChatEvent, E>) scope.mChat = event.message();
+    if constexpr (requires { event.isCancelled(); }) scope.mCancelled = event.isCancelled();
+    return scope;
+}
+
 template <class E>
 static FerrumStatus
 attachEvent(std::shared_ptr<FerrumMod> const& owner, ListenerHandle handle, EventPriority priority) {
     auto listener = ll::event::Listener<E>::create(
-        [handle, weakOwner = std::weak_ptr<FerrumMod>{owner}](E& event) {
+        [handle](E& event) {
             (void)eventGuard([&] {
-                // 必须先核验主线程；非主线程既不访问事件实体，也不授予令牌。
-                if (!ferrum_host_is_main_thread()) {
-                    auto text = tr("event.wrong_thread");
-                    if (auto mod = weakOwner.lock()) mod->getLogger().error(text);
-                    ferrum_host_set_last_error({reinterpret_cast<uint8_t const*>(text.data()), text.size()});
-                    return FerrumStatus_WRONG_THREAD;
+                if constexpr (std::is_same_v<E, ll::event::ConsoleOutputtingEvent>
+                              || std::is_same_v<E, ll::event::ConsoleOutputtedEvent>
+                              || std::is_base_of_v<ll::event::ServiceEvent, E>) {
+                    auto scope = snapshot(event);
+                    std::string message;
+                    if constexpr (requires { event.message(); }) message = event.message();
+                    auto bytes = [](std::string const& text) -> FfiStr {
+                        return {reinterpret_cast<uint8_t const*>(text.data()), text.size()};
+                    };
+                    FfiBool cancel = FfiBool_FALSE;
+                    auto status = ferrum_host_dispatch_thread_event(
+                        handle, bytes(scope.mPayload), bytes(message),
+                        scope.mCancelled.value_or(false) ? FfiBool_TRUE : FfiBool_FALSE, &cancel
+                    );
+                    if constexpr (requires { event.cancel(); }) {
+                        if (cancel) event.cancel();
+                    }
+                    return status;
                 }
-                EventScope scope{event.self().getRuntimeID().rawID, &event};
-                auto       id = ++sNextScope;
-                sScopes.emplace(id, &scope);
-                auto status = ferrum_host_dispatch_event(handle, id);
-                sScopes.erase(id);
-                return status;
+                if (!ferrum_host_is_main_thread()) return FerrumStatus_WRONG_THREAD;
+                auto scope = snapshot(event);
+                if constexpr (requires { event.cancel(); }) scope.mCancel = [&event] { event.cancel(); };
+                return dispatch(handle, scope);
             });
         },
         static_cast<ll::event::EventPriority>(priority),
@@ -91,6 +161,74 @@ subscribeEvent(ShimModCookie cookie, ListenerHandle handle, EventSubscriptionV1 
             return attachEvent<ll::event::PlayerDisconnectEvent>(owner, handle, sub->priority);
         case EventKind_PLAYER_CHAT:
             return attachEvent<ll::event::PlayerChatEvent>(owner, handle, sub->priority);
+        case EventKind_EXECUTING_COMMAND:
+            return attachEvent<ll::event::ExecutingCommandEvent>(owner, handle, sub->priority);
+        case EventKind_EXECUTED_COMMAND:
+            return attachEvent<ll::event::ExecutedCommandEvent>(owner, handle, sub->priority);
+        case EventKind_SERVER_COMMAND_REGISTER:
+            return attachEvent<ll::event::ServerCommandRegisterEvent>(owner, handle, sub->priority);
+        case EventKind_ACTOR_HURT:
+            return attachEvent<ll::event::ActorHurtEvent>(owner, handle, sub->priority);
+        case EventKind_MOB_DIE:
+            return attachEvent<ll::event::MobDieEvent>(owner, handle, sub->priority);
+        case EventKind_CONSOLE_OUTPUTTING:
+            return attachEvent<ll::event::ConsoleOutputtingEvent>(owner, handle, sub->priority);
+        case EventKind_CONSOLE_OUTPUTTED:
+            return attachEvent<ll::event::ConsoleOutputtedEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_ADD_EXPERIENCE:
+            return attachEvent<ll::event::PlayerAddExperienceEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_ATTACK:
+            return attachEvent<ll::event::PlayerAttackEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_CHANGE_PERM:
+            return attachEvent<ll::event::PlayerChangePermEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_CONNECT:
+            return attachEvent<ll::event::PlayerConnectEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_DESTROY_BLOCK:
+            return attachEvent<ll::event::PlayerDestroyBlockEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_DIE:
+            return attachEvent<ll::event::PlayerDieEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_INTERACT_BLOCK:
+            return attachEvent<ll::event::PlayerInteractBlockEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_JUMP:
+            return attachEvent<ll::event::PlayerJumpEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_PICK_UP_ITEM:
+            return attachEvent<ll::event::PlayerPickUpItemEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_PLACING_BLOCK:
+            return attachEvent<ll::event::PlayerPlacingBlockEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_PLACED_BLOCK:
+            return attachEvent<ll::event::PlayerPlacedBlockEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_RESPAWN:
+            return attachEvent<ll::event::PlayerRespawnEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_SNEAKING:
+            return attachEvent<ll::event::PlayerSneakingEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_SNEAKED:
+            return attachEvent<ll::event::PlayerSneakedEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_SPRINTING:
+            return attachEvent<ll::event::PlayerSprintingEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_SPRINTED:
+            return attachEvent<ll::event::PlayerSprintedEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_SWING:
+            return attachEvent<ll::event::PlayerSwingEvent>(owner, handle, sub->priority);
+        case EventKind_PLAYER_USE_ITEM:
+            return attachEvent<ll::event::PlayerUseItemEvent>(owner, handle, sub->priority);
+        case EventKind_SERVER_STARTED:
+            return attachEvent<ll::event::ServerStartedEvent>(owner, handle, sub->priority);
+        case EventKind_SERVER_STOPPING:
+            return attachEvent<ll::event::ServerStoppingEvent>(owner, handle, sub->priority);
+        case EventKind_SERVICE_REGISTER:
+            return attachEvent<ll::event::ServiceRegisterEvent>(owner, handle, sub->priority);
+        case EventKind_SERVICE_UNREGISTER:
+            return attachEvent<ll::event::ServiceUnregisterEvent>(owner, handle, sub->priority);
+        case EventKind_BLOCK_CHANGED:
+            return attachEvent<ll::event::BlockChangedEvent>(owner, handle, sub->priority);
+        case EventKind_FIRE_SPREAD:
+            return attachEvent<ll::event::FireSpreadEvent>(owner, handle, sub->priority);
+        case EventKind_SERVER_LEVEL_TICK:
+            return attachEvent<ll::event::ServerLevelTickEvent>(owner, handle, sub->priority);
+        case EventKind_SPAWNING_MOB:
+            return attachEvent<ll::event::SpawningMobEvent>(owner, handle, sub->priority);
+        case EventKind_SPAWNED_MOB:
+            return attachEvent<ll::event::SpawnedMobEvent>(owner, handle, sub->priority);
         default:
             return FerrumStatus_UNSUPPORTED;
         }
@@ -115,57 +253,54 @@ static FerrumStatus withEvent(uint64_t id, F&& f) noexcept {
         return it == sScopes.end() ? FerrumStatus_STALE_HANDLE : f(*it->second);
     });
 }
-static FerrumStatus eventPlayer(uint64_t id, ActorRuntimeId* out) noexcept {
+static FerrumStatus eventSubject(uint64_t id, bool playerOnly, ActorRuntimeId* out) noexcept {
     return withEvent(id, [&](EventScope& scope) {
         if (!out) return FerrumStatus_NULL_POINTER;
+        if (!scope.mActor || (playerOnly && !scope.mPlayer)) return FerrumStatus_INVALID_ARGUMENT;
         auto level = ll::service::getLevel();
         if (!level) return FerrumStatus_SERVICE_UNAVAILABLE;
-        auto* actor = level->getRuntimeEntity(::ActorRuntimeID{scope.mPlayer}, false);
-        if (!actor || !actor->isPlayer()) return FerrumStatus_NOT_FOUND;
-        *out = scope.mPlayer;
+        auto* actor = level->getRuntimeEntity(::ActorRuntimeID{*scope.mActor}, false);
+        if (!actor || (playerOnly && !actor->isPlayer())) return FerrumStatus_NOT_FOUND;
+        *out = *scope.mActor;
         return FerrumStatus_OK;
     });
 }
+static FerrumStatus eventPlayer(uint64_t id, ActorRuntimeId* out) noexcept { return eventSubject(id, true, out); }
+static FerrumStatus eventActor(uint64_t id, ActorRuntimeId* out) noexcept { return eventSubject(id, false, out); }
 static FerrumStatus eventCancelled(uint64_t id, FfiBool* out) noexcept {
     return withEvent(id, [&](EventScope& scope) {
         if (!out) return FerrumStatus_NULL_POINTER;
-        return std::visit(
-            [&](auto* event) {
-                if constexpr (requires { event->isCancelled(); }) {
-                    *out = event->isCancelled() ? FfiBool_TRUE : FfiBool_FALSE;
-                    return FerrumStatus_OK;
-                } else return FerrumStatus_INVALID_ARGUMENT;
-            },
-            scope.mEvent
-        );
+        if (!scope.mCancelled) return FerrumStatus_INVALID_ARGUMENT;
+        *out = *scope.mCancelled ? FfiBool_TRUE : FfiBool_FALSE;
+        return FerrumStatus_OK;
     });
 }
 static FerrumStatus cancelEvent(uint64_t id) noexcept {
     return withEvent(id, [&](EventScope& scope) {
-        return std::visit(
-            [](auto* event) {
-                if constexpr (requires { event->cancel(); }) {
-                    event->cancel();
-                    return FerrumStatus_OK;
-                } else return FerrumStatus_INVALID_ARGUMENT;
-            },
-            scope.mEvent
-        );
+        if (!scope.mCancelled) return FerrumStatus_INVALID_ARGUMENT;
+        if (!scope.mCancel) return FerrumStatus_UNSUPPORTED;
+        scope.mCancel();
+        scope.mCancelled = true;
+        return FerrumStatus_OK;
     });
+}
+static FerrumStatus writeEventText(FfiByteWriter* out, std::string const& text) {
+    if (!out) return FerrumStatus_NULL_POINTER;
+    return out->write_fn(out->context, reinterpret_cast<uint8_t const*>(text.data()), text.size());
 }
 static FerrumStatus chatMessage(uint64_t id, FfiByteWriter* out) noexcept {
     return withEvent(id, [&](EventScope& scope) {
-        if (!out) return FerrumStatus_NULL_POINTER;
-        auto* event = std::get_if<ll::event::PlayerChatEvent*>(&scope.mEvent);
-        if (!event) return FerrumStatus_INVALID_ARGUMENT;
-        // 先复制，writer 回调可以重入；不持有底层字符串借用跨越模组代码。
-        auto text = (*event)->message();
-        return out->write_fn(out->context, reinterpret_cast<uint8_t const*>(text.data()), text.size());
+        return scope.mChat ? writeEventText(out, *scope.mChat) : FerrumStatus_INVALID_ARGUMENT;
     });
+}
+static FerrumStatus payloadSnbt(uint64_t id, FfiByteWriter* out) noexcept {
+    return withEvent(id, [&](EventScope& scope) { return writeEventText(out, scope.mPayload); });
 }
 void installEventApi(FerrumShimApi& api) {
     api.event_subscribe    = subscribeEvent;
     api.event_unsubscribe  = unsubscribeEvent;
+    api.event_payload_snbt = payloadSnbt;
+    api.event_actor        = eventActor;
     api.event_player       = eventPlayer;
     api.event_is_cancelled = eventCancelled;
     api.event_cancel       = cancelEvent;

@@ -14,7 +14,9 @@ struct Route {
     priority: EventPriority,
 }
 struct Scope {
-    player: ActorRuntimeId,
+    subject: Option<ActorRuntimeId>,
+    kind: EventKind,
+    payload: String,
     message: Option<String>,
     cancelled: bool,
 }
@@ -31,9 +33,15 @@ struct Bus {
     custom: BTreeMap<u64, CustomRoute>,
     serial: u64,
 }
+static THREAD_ROUTES: std::sync::Mutex<BTreeMap<u64, Route>> =
+    std::sync::Mutex::new(BTreeMap::new());
 thread_local! { static BUS: RefCell<Bus> = RefCell::new(Bus::default()); }
 pub(super) fn reset() {
     BUS.with(|b| *b.borrow_mut() = Bus::default());
+    THREAD_ROUTES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
 }
 
 pub(super) extern "C" fn subscribe(
@@ -44,16 +52,19 @@ pub(super) extern "C" fn subscribe(
     guard(|| {
         // SAFETY: 真实宿主已校验订阅描述，其在当前同步调用内有效。
         let sub = unsafe { &*sub };
-        BUS.with(|b| {
-            b.borrow_mut().routes.insert(
-                handle.0.to_raw(),
-                Route {
-                    cookie,
-                    kind: sub.kind,
-                    priority: sub.priority,
-                },
-            )
-        });
+        let route = Route {
+            cookie,
+            kind: sub.kind,
+            priority: sub.priority,
+        };
+        if sub.kind.is_emitter_thread_event() {
+            THREAD_ROUTES
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(handle.0.to_raw(), route);
+        } else {
+            BUS.with(|b| b.borrow_mut().routes.insert(handle.0.to_raw(), route));
+        }
         FerrumStatus::OK
     })
 }
@@ -62,6 +73,16 @@ pub(super) extern "C" fn unsubscribe(
     handle: ListenerHandle,
 ) -> FerrumStatus {
     guard(|| {
+        {
+            let mut routes = THREAD_ROUTES.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(route) = routes.get(&handle.0.to_raw()) {
+                if route.cookie != cookie {
+                    return FerrumStatus::PERMISSION_DENIED;
+                }
+                routes.remove(&handle.0.to_raw());
+                return FerrumStatus::OK;
+            }
+        }
         BUS.with(|b| {
             let mut b = b.borrow_mut();
             match b.routes.get(&handle.0.to_raw()) {
@@ -85,12 +106,32 @@ fn scope<T>(raw: u64, f: impl FnOnce(&mut Scope) -> T) -> Result<T, FerrumStatus
     })
 }
 pub(super) extern "C" fn player(raw: u64, out: *mut ActorRuntimeId) -> FerrumStatus {
-    guard(
-        || match scope(raw, |s| s.player).and_then(|id| player_exists(id).map(|_| id)) {
+    guard(|| {
+        match scope(raw, |s| s.subject.filter(|_| s.kind.is_player_event()))
+            .and_then(|id| id.ok_or(FerrumStatus::INVALID_ARGUMENT))
+            .and_then(|id| player_exists(id).map(|_| id))
+        {
             Ok(id) => put(out, id),
             Err(s) => s,
-        },
-    )
+        }
+    })
+}
+pub(super) extern "C" fn actor(raw: u64, out: *mut ActorRuntimeId) -> FerrumStatus {
+    guard(|| {
+        match scope(raw, |s| s.subject)
+            .and_then(|id| id.ok_or(FerrumStatus::INVALID_ARGUMENT))
+            .and_then(|id| super::domain::actor_exists(id).map(|_| id))
+        {
+            Ok(id) => put(out, id),
+            Err(s) => s,
+        }
+    })
+}
+pub(super) extern "C" fn payload_snbt(raw: u64, out: *mut FfiByteWriter) -> FerrumStatus {
+    guard(|| match scope(raw, |s| s.payload.clone()) {
+        Ok(text) => write(out, text.as_bytes()),
+        Err(s) => s,
+    })
 }
 pub(super) extern "C" fn cancelled(raw: u64, out: *mut FfiBool) -> FerrumStatus {
     guard(|| match scope(raw, |s| s.cancelled) {
@@ -204,29 +245,100 @@ pub(super) extern "C" fn publish_custom(
 impl MockHost {
     /// 返回是否取消；不自动添加玩家或改变在线状态。
     pub fn emit_player_join(&self, player: ActorRuntimeId) -> Result<bool, Error> {
-        self.emit_event(EventKind::PLAYER_JOIN, player, None)
+        self.emit_event(EventKind::PLAYER_JOIN, Some(player), "{}".into(), None)
     }
     /// 在移除玩家前调用；不自动改变在线状态。
     pub fn emit_player_disconnect(&self, player: ActorRuntimeId) -> Result<(), Error> {
-        self.emit_event(EventKind::PLAYER_DISCONNECT, player, None)
-            .map(|_| ())
+        self.emit_event(
+            EventKind::PLAYER_DISCONNECT,
+            Some(player),
+            "{}".into(),
+            None,
+        )
+        .map(|_| ())
     }
     pub fn emit_player_chat(
         &self,
         player: ActorRuntimeId,
         message: impl Into<String>,
     ) -> Result<bool, Error> {
-        self.emit_event(EventKind::PLAYER_CHAT, player, Some(message.into()))
+        let message = message.into();
+        let payload = format!(
+            "{{message:\"{}\"}}",
+            message.replace('\\', "\\\\").replace('"', "\\\"")
+        );
+        self.emit_event(EventKind::PLAYER_CHAT, Some(player), payload, Some(message))
+    }
+    /// 在调用者线程同步派发控制台或服务事件。返回 LL 最终观察到的取消状态。
+    pub fn emit_sync_event<E: ferrum_sdk::events::EmitterThreadEvent>(
+        &self,
+        payload_snbt: &str,
+        message: &str,
+        was_cancelled: bool,
+    ) -> bool {
+        let mut routes: Vec<_> = THREAD_ROUTES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|(_, r)| r.kind == E::KIND)
+            .map(|(&raw, r)| (r.priority.0, raw))
+            .collect();
+        routes.sort_unstable();
+        let mut cancelled = was_cancelled;
+        for (_, raw) in routes {
+            let mut request = FfiBool::FALSE;
+            let handle =
+                ListenerHandle(GenerationalHandle::from_raw(raw).expect("registered handle"));
+            ferrum_host::event::ferrum_host_dispatch_thread_event(
+                handle,
+                FfiStr::new(payload_snbt),
+                FfiStr::new(message),
+                was_cancelled.into(),
+                &mut request,
+            );
+            if E::KIND.is_cancellable() && request.get() {
+                cancelled = true;
+                break;
+            }
+        }
+        cancelled
+    }
+
+    /// 派发 LL 事件快照。玩家和实体事件需要对应种类的主体。
+    pub fn emit_official_event<E: ferrum_sdk::events::MainThreadEvent>(
+        &self,
+        subject: Option<ActorRuntimeId>,
+        payload_snbt: impl Into<String>,
+    ) -> Result<bool, Error> {
+        if E::KIND == EventKind::PLAYER_CHAT {
+            return Err(Error::new(
+                FerrumStatus::INVALID_ARGUMENT,
+                "聊天事件使用 emit_player_chat 指定消息",
+            ));
+        }
+        self.emit_event(E::KIND, subject, payload_snbt.into(), None)
     }
     fn emit_event(
         &self,
         kind: EventKind,
-        player: ActorRuntimeId,
+        subject: Option<ActorRuntimeId>,
+        payload: String,
         message: Option<String>,
     ) -> Result<bool, Error> {
         check(guard(|| FerrumStatus::OK))?;
         self.flush_disables();
-        player_exists(player).map_err(|s| Error::new(s, "mock 玩家不存在"))?;
+        let valid = match subject {
+            Some(id) if kind.is_player_event() => player_exists(id),
+            Some(id) if kind == EventKind::ACTOR_HURT => super::domain::actor_exists(id),
+            Some(id) if kind == EventKind::MOB_DIE => super::domain::mob_exists(id),
+            None if !(kind.is_player_event()
+                || matches!(kind, EventKind::ACTOR_HURT | EventKind::MOB_DIE)) =>
+            {
+                Ok(())
+            }
+            _ => Err(FerrumStatus::INVALID_ARGUMENT),
+        };
+        valid.map_err(|s| Error::new(s, "mock 事件主体无效"))?;
         let (raw_scope, mut routes) = BUS.with(|b| {
             let mut b = b.borrow_mut();
             b.serial += 1;
@@ -234,7 +346,9 @@ impl MockHost {
             b.scopes.insert(
                 raw,
                 Scope {
-                    player,
+                    subject,
+                    kind,
+                    payload,
                     message,
                     cancelled: false,
                 },

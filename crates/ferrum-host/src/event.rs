@@ -11,23 +11,32 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+#[derive(Clone, Copy)]
+enum Callback {
+    Main(EventCallbackV1),
+    Thread(ThreadEventCallbackV1),
+}
+
 struct Listener {
     owner: ModContextHandle,
     kind: EventKind,
-    callback: EventCallbackV1,
+    callback: Callback,
     owned: AtomicBool,
     warned_reentrant: AtomicBool,
 }
 
-// SAFETY: env 仅在经过主线程检查的入口调用和析构，全局池不在其他线程解引用 env。
+// SAFETY: Main 闭包仅在主线程调用和析构。Thread 闭包满足 Send + Sync。
 unsafe impl Send for Listener {}
-// SAFETY: 同上，主线程串行派发，克隆 Arc 时不接触闭包状态。
+// SAFETY: 工作线程仅在 Invocation 守卫内取得 Thread 回调的强引用。
 unsafe impl Sync for Listener {}
 
 impl Drop for Listener {
     fn drop(&mut self) {
         if self.owned.load(Ordering::Relaxed) {
-            (self.callback.drop_fn)(self.callback.env);
+            match self.callback {
+                Callback::Main(cb) => (cb.drop_fn)(cb.env),
+                Callback::Thread(cb) => (cb.drop_fn)(cb.env),
+            }
         }
     }
 }
@@ -57,6 +66,24 @@ extern "C" fn subscribe(
     callback: EventCallbackV1,
     out: *mut ListenerHandle,
 ) -> FerrumStatus {
+    register(ctx, subscription, Callback::Main(callback), out)
+}
+
+extern "C" fn subscribe_sync(
+    ctx: ModContextHandle,
+    subscription: *const EventSubscriptionV1,
+    callback: ThreadEventCallbackV1,
+    out: *mut ListenerHandle,
+) -> FerrumStatus {
+    register(ctx, subscription, Callback::Thread(callback), out)
+}
+
+fn register(
+    ctx: ModContextHandle,
+    subscription: *const EventSubscriptionV1,
+    callback: Callback,
+    out: *mut ListenerHandle,
+) -> FerrumStatus {
     vtable::guard_api("event::subscribe", || {
         if let Err(s) = main_thread() {
             return s;
@@ -70,11 +97,11 @@ extern "C" fn subscribe(
         }
         // SAFETY: 已确认结构大小，调用方保证其在同步调用内有效。
         let subscription = unsafe { &*subscription };
-        if !matches!(
-            subscription.kind,
-            EventKind::PLAYER_JOIN | EventKind::PLAYER_DISCONNECT | EventKind::PLAYER_CHAT
-        ) {
+        if subscription.kind.0 > EventKind::SPAWNED_MOB.0 {
             return last_error::fail(FerrumStatus::UNSUPPORTED, "不支持的原生事件类型");
+        }
+        if subscription.kind.is_emitter_thread_event() != matches!(callback, Callback::Thread(_)) {
+            return FerrumStatus::INVALID_ARGUMENT;
         }
         if !matches!(
             subscription.priority,
@@ -117,7 +144,7 @@ extern "C" fn subscribe(
                 .unwrap_or_else(|e| e.into_inner())
                 .listeners
                 .push(handle);
-            listener.owned.store(true, Ordering::Relaxed);
+            listener.owned.store(true, Ordering::Release);
             // SAFETY: 调用方提供独占可写的 ListenerHandle 内存，注册已完成。
             unsafe { out.write(handle) };
         } else {
@@ -205,9 +232,7 @@ fn scope_call(
                 Some(_) => return FerrumStatus::PERMISSION_DENIED,
                 None => return FerrumStatus::STALE_HANDLE,
             };
-            if kind.is_some_and(|k| k != s.kind)
-                || (cancellable && s.kind == EventKind::PLAYER_DISCONNECT)
-            {
+            if kind.is_some_and(|k| k != s.kind) || (cancellable && !s.kind.is_cancellable()) {
                 return FerrumStatus::INVALID_ARGUMENT;
             }
             s.shim_id
@@ -245,6 +270,26 @@ extern "C" fn chat_message(
     })
 }
 
+extern "C" fn payload_snbt(
+    ctx: ModContextHandle,
+    scope: EventScopeHandle,
+    out: *mut FfiByteWriter,
+) -> FerrumStatus {
+    scope_call(ctx, scope, None, false, |api, id| {
+        (api.event_payload_snbt)(id, out)
+    })
+}
+
+extern "C" fn actor(
+    ctx: ModContextHandle,
+    scope: EventScopeHandle,
+    out: *mut ActorRuntimeId,
+) -> FerrumStatus {
+    scope_call(ctx, scope, None, false, |api, id| {
+        (api.event_actor)(id, out)
+    })
+}
+
 /// shim 仅传递栈上事件的数字索引，C++ 对象指针不会进入 Rust。
 #[unsafe(no_mangle)]
 pub extern "C" fn ferrum_host_dispatch_event(raw: u64, shim_scope: u64) -> FerrumStatus {
@@ -275,6 +320,9 @@ pub extern "C" fn ferrum_host_dispatch_event(raw: u64, shim_scope: u64) -> Ferru
         // 在守卫之后重新绑定：局部变量逆序析构，panic 展开时也先释放监听器
         // （可能执行 drop_fn），再结束活跃调用并处理推迟的停用。
         let listener = listener;
+        let Callback::Main(callback) = listener.callback else {
+            return FerrumStatus::INVALID_ARGUMENT;
+        };
         let scope = EventScopeHandle(SCOPES.lock().unwrap_or_else(|e| e.into_inner()).insert(
             Scope {
                 owner: ctx,
@@ -282,11 +330,7 @@ pub extern "C" fn ferrum_host_dispatch_event(raw: u64, shim_scope: u64) -> Ferru
                 shim_id: shim_scope,
             },
         ));
-        let status = (listener.callback.invoke_fn)(
-            listener.callback.env,
-            scope,
-            RawMainThreadToken::ASSERTED,
-        );
+        let status = (callback.invoke_fn)(callback.env, scope, RawMainThreadToken::ASSERTED);
         SCOPES
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -329,6 +373,85 @@ pub extern "C" fn ferrum_host_dispatch_event(raw: u64, shim_scope: u64) -> Ferru
     })
 }
 
+// 触发线程不能调用 LL 退订或析构主线程回调。下一个主线程 tick 按代数句柄清理。
+static POISONED: Mutex<Vec<(ModContextHandle, ListenerHandle)>> = Mutex::new(Vec::new());
+pub(crate) fn drain_poisoned_listeners() {
+    let pending = std::mem::take(&mut *POISONED.lock().unwrap_or_else(|e| e.into_inner()));
+    for (ctx, handle) in pending {
+        unsubscribe(ctx, handle);
+    }
+}
+
+thread_local! {
+    static THREAD_CALLS: std::cell::RefCell<Vec<ListenerHandle>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+struct ThreadCall;
+impl Drop for ThreadCall {
+    fn drop(&mut self) {
+        THREAD_CALLS.with_borrow_mut(|calls| calls.pop());
+    }
+}
+
+/// 两个文本及取消输出只在同步派发期间借用。该路径永远不发放主线程令牌。
+#[unsafe(no_mangle)]
+pub extern "C" fn ferrum_host_dispatch_thread_event(
+    handle: ListenerHandle,
+    payload: FfiStr<'_>,
+    message: FfiStr<'_>,
+    cancelled: FfiBool,
+    out: *mut FfiBool,
+) -> FerrumStatus {
+    vtable::guard_api("event::dispatch_thread", || {
+        if out.is_null() {
+            return FerrumStatus::NULL_POINTER;
+        }
+        let listeners = LISTENERS.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(listener) = listeners.get(handle.0) else {
+            return FerrumStatus::STALE_HANDLE;
+        };
+        let ctx = listener.owner;
+        let Callback::Thread(cb) = listener.callback else {
+            return FerrumStatus::INVALID_ARGUMENT;
+        };
+        if !listener.owned.load(Ordering::Acquire) {
+            return FerrumStatus::MOD_DISABLED;
+        }
+        let entry = match runtime::lookup(ctx) {
+            Ok(entry) => entry,
+            Err(s) => return s,
+        };
+        let _invocation = match Invocation::begin_on_emitter(ctx, entry.clone()) {
+            Ok(guard) => guard,
+            Err(status) => return status,
+        };
+        let listener = listener.clone();
+        drop(listeners);
+        if THREAD_CALLS.with_borrow(|calls| calls.contains(&handle)) {
+            return FerrumStatus::REENTRANT_CALL;
+        }
+        THREAD_CALLS.with_borrow_mut(|calls| calls.push(handle));
+        let _call = ThreadCall;
+        let status = (cb.invoke_fn)(cb.env, payload, message, cancelled, out);
+        if matches!(
+            status,
+            FerrumStatus::MOD_PANICKED | FerrumStatus::CALLBACK_POISONED
+        ) {
+            if !listener.warned_reentrant.swap(true, Ordering::AcqRel) {
+                POISONED
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push((ctx, handle));
+            }
+        } else if !status.is_ok() {
+            if let Some(shim) = shim::get() {
+                let detail = last_error::take().unwrap_or_else(|| status.to_string());
+                (shim.log)(entry.info.cookie, LogLevel::ERROR, FfiStr::new(&detail));
+            }
+        }
+        status
+    })
+}
+
 pub static EVENT_V1: EventApiV1 = EventApiV1 {
     struct_size: size_of::<EventApiV1>() as u32,
     subscribe,
@@ -337,4 +460,7 @@ pub static EVENT_V1: EventApiV1 = EventApiV1 {
     is_cancelled,
     cancel,
     chat_message,
+    payload_snbt,
+    actor,
+    subscribe_sync,
 };

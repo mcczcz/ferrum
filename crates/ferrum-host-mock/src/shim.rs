@@ -46,6 +46,8 @@ pub(super) fn api() -> FerrumShimApi {
         mob_v1: domain::MOB,
         event_subscribe: events::subscribe,
         event_unsubscribe: events::unsubscribe,
+        event_payload_snbt: events::payload_snbt,
+        event_actor: events::actor,
         event_player: events::player,
         event_is_cancelled: events::cancelled,
         event_cancel: events::cancel,

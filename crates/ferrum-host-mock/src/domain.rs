@@ -33,9 +33,18 @@ impl MockActor {
         }
     }
 }
+#[derive(Default)]
+struct ActorState {
+    name_tag: String,
+    sprinting: bool,
+    on_ground: bool,
+    in_water: bool,
+}
+
 struct OtherActor {
     id: ActorRuntimeId,
     actor: MockActor,
+    state: ActorState,
 }
 /// 可读取、配置的 mock 玩家状态；生命值以点计，默认 20 点。
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -86,6 +95,9 @@ struct OnlinePlayer {
     player: MockPlayer,
     messages: Vec<String>,
     state: MockPlayerState,
+    actor_state: ActorState,
+    xp: i32,
+    level: i32,
 }
 #[derive(Clone)]
 struct Command {
@@ -274,6 +286,38 @@ extern "C" fn set_game_mode(id: ActorRuntimeId, mode: GameMode) -> FerrumStatus 
         player(id, |p| p.state.game_mode = mode).map_or_else(|s| s, |_| FerrumStatus::OK)
     })
 }
+fn level_cost(level: i32) -> i32 {
+    match level {
+        0..=15 => 7 + 2 * level,
+        16..=30 => 5 * level - 38,
+        _ => 9 * level - 158,
+    }
+}
+extern "C" fn xp_needed_for_next_level(id: ActorRuntimeId, out: *mut i32) -> FerrumStatus {
+    guard(|| player(id, |p| level_cost(p.level)).map_or_else(|s| s, |v| put(out, v)))
+}
+extern "C" fn xp_earned_at_current_level(id: ActorRuntimeId, out: *mut i32) -> FerrumStatus {
+    guard(|| player(id, |p| p.xp).map_or_else(|s| s, |v| put(out, v)))
+}
+extern "C" fn add_experience(id: ActorRuntimeId, points: i32) -> FerrumStatus {
+    guard(|| {
+        if points < 0 {
+            return FerrumStatus::INVALID_ARGUMENT;
+        }
+        player(id, |p| {
+            let mut xp = i64::from(p.xp) + i64::from(points);
+            while xp >= i64::from(level_cost(p.level)) {
+                xp -= i64::from(level_cost(p.level));
+                p.level += 1;
+            }
+            p.xp = xp as i32;
+        })
+        .map_or_else(|s| s, |_| FerrumStatus::OK)
+    })
+}
+extern "C" fn is_hungry(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
+    guard(|| player(id, |_| FfiBool::FALSE).map_or_else(|s| s, |v| put(out, v)))
+}
 pub(super) static PLAYER: PlayerApiV1 = PlayerApiV1 {
     struct_size: size_of::<PlayerApiV1>() as u32,
     find_by_name: find_name,
@@ -291,6 +335,10 @@ pub(super) static PLAYER: PlayerApiV1 = PlayerApiV1 {
     set_health,
     game_mode,
     set_game_mode,
+    xp_earned_at_current_level,
+    xp_needed_for_next_level,
+    add_experience,
+    is_hungry,
 };
 
 fn serial(d: &mut Domain) -> GenerationalHandle {
@@ -412,6 +460,53 @@ extern "C" fn mob_set_health(id: ActorRuntimeId, value: f32) -> FerrumStatus {
         edit_actor(id, |a| a.health = value)
     })
 }
+fn actor_state<T>(
+    id: ActorRuntimeId,
+    mob: bool,
+    f: impl FnOnce(&mut ActorState) -> T,
+) -> Result<T, FerrumStatus> {
+    DOMAIN.with(|domain| {
+        let mut domain = domain.borrow_mut();
+        if let Some(player) = domain.players.iter_mut().find(|p| p.id == id) {
+            return Ok(f(&mut player.actor_state));
+        }
+        let actor = domain
+            .actors
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or(FerrumStatus::NOT_FOUND)?;
+        if mob && actor.actor.kind != ActorKind::MOB {
+            return Err(FerrumStatus::INVALID_ARGUMENT);
+        }
+        Ok(f(&mut actor.state))
+    })
+}
+extern "C" fn name_tag(id: ActorRuntimeId, out: *mut FfiByteWriter) -> FerrumStatus {
+    guard(|| {
+        actor_state(id, false, |a| a.name_tag.clone())
+            .map_or_else(|s| s, |name| write(out, name.as_bytes()))
+    })
+}
+extern "C" fn set_name_tag(id: ActorRuntimeId, name: FfiStr<'_>) -> FerrumStatus {
+    guard(|| {
+        actor_state(id, false, |a| a.name_tag = text(name)).map_or_else(|s| s, |_| FerrumStatus::OK)
+    })
+}
+extern "C" fn set_sprinting(id: ActorRuntimeId, value: FfiBool) -> FerrumStatus {
+    guard(|| {
+        actor_state(id, true, |a| a.sprinting = value.get())
+            .map_or_else(|s| s, |_| FerrumStatus::OK)
+    })
+}
+extern "C" fn is_on_ground(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
+    guard(|| actor_state(id, false, |a| a.on_ground).map_or_else(|s| s, |v| put(out, v.into())))
+}
+extern "C" fn is_in_water(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
+    guard(|| actor_state(id, false, |a| a.in_water).map_or_else(|s| s, |v| put(out, v.into())))
+}
+extern "C" fn is_sprinting(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
+    guard(|| actor_state(id, true, |a| a.sprinting).map_or_else(|s| s, |v| put(out, v.into())))
+}
 pub(super) static ACTOR: ActorApiV1 = ActorApiV1 {
     struct_size: size_of::<ActorApiV1>() as u32,
     find_by_unique_id: actor_find,
@@ -421,12 +516,18 @@ pub(super) static ACTOR: ActorApiV1 = ActorApiV1 {
     position: actor_position,
     dimension: actor_dimension,
     teleport: actor_teleport,
+    name_tag,
+    set_name_tag,
+    is_on_ground,
+    is_in_water,
 };
 pub(super) static MOB: MobApiV1 = MobApiV1 {
     struct_size: size_of::<MobApiV1>() as u32,
     health: mob_health,
     max_health: mob_max_health,
     set_health: mob_set_health,
+    is_sprinting,
+    set_sprinting,
 };
 
 fn block_key(dim: DimensionId, pos: BlockPos) -> Result<(i32, i32, i32, i32), FerrumStatus> {
@@ -701,7 +802,11 @@ impl MockHost {
             let mut d = d.borrow_mut();
             d.next_player += 1;
             let id = ActorRuntimeId(d.next_player);
-            d.actors.push(OtherActor { id, actor });
+            d.actors.push(OtherActor {
+                id,
+                actor,
+                state: ActorState::default(),
+            });
             Ok(id)
         })
     }
@@ -741,6 +846,9 @@ impl MockHost {
                 player,
                 messages: Vec::new(),
                 state: MockPlayerState::default(),
+                actor_state: ActorState::default(),
+                xp: 0,
+                level: 0,
             });
             id
         })
@@ -882,6 +990,12 @@ impl MockHost {
     }
 }
 
+pub(super) fn actor_exists(id: ActorRuntimeId) -> Result<(), FerrumStatus> {
+    actor_snapshot(id).map(|_| ())
+}
+pub(super) fn mob_exists(id: ActorRuntimeId) -> Result<(), FerrumStatus> {
+    mob_snapshot(id).map(|_| ())
+}
 pub(super) fn player_exists(id: ActorRuntimeId) -> Result<(), FerrumStatus> {
     player(id, |_| ())
 }

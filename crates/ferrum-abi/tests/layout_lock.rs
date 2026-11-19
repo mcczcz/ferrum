@@ -292,3 +292,28 @@ const _: () = assert!(offset_of!(SchedulerApiV1, post) == 8);
 const _: () = assert!(offset_of!(SchedulerApiV1, after_ticks) == 16);
 const _: () = assert!(offset_of!(SchedulerApiV1, every_ticks) == 24);
 const _: () = assert!(offset_of!(SchedulerApiV1, cancel) == 32);
+
+const _: () = assert!(size_of::<ActorApiV1>() >= 96);
+const _: () = assert!(offset_of!(ActorApiV1, name_tag) == 64);
+const _: () = assert!(offset_of!(ActorApiV1, set_name_tag) == 72);
+const _: () = assert!(offset_of!(ActorApiV1, is_on_ground) == 80);
+const _: () = assert!(offset_of!(ActorApiV1, is_in_water) == 88);
+const _: () = assert!(size_of::<MobApiV1>() >= 48);
+const _: () = assert!(offset_of!(MobApiV1, is_sprinting) == 32);
+const _: () = assert!(offset_of!(MobApiV1, set_sprinting) == 40);
+const _: () = assert!(size_of::<PlayerApiV1>() >= 160);
+const _: () = assert!(offset_of!(PlayerApiV1, xp_earned_at_current_level) == 128);
+const _: () = assert!(offset_of!(PlayerApiV1, xp_needed_for_next_level) == 136);
+const _: () = assert!(offset_of!(PlayerApiV1, add_experience) == 144);
+const _: () = assert!(offset_of!(PlayerApiV1, is_hungry) == 152);
+const _: () = assert!(size_of::<EventApiV1>() >= 72);
+const _: () = assert!(offset_of!(EventApiV1, payload_snbt) == 56);
+const _: () = assert!(offset_of!(EventApiV1, actor) == 64);
+
+const _: () = assert!(size_of::<ThreadEventCallbackV1>() == 24);
+const _: () = assert!(align_of::<ThreadEventCallbackV1>() == 8);
+const _: () = assert!(offset_of!(ThreadEventCallbackV1, env) == 0);
+const _: () = assert!(offset_of!(ThreadEventCallbackV1, invoke_fn) == 8);
+const _: () = assert!(offset_of!(ThreadEventCallbackV1, drop_fn) == 16);
+const _: () = assert!(size_of::<EventApiV1>() >= 80);
+const _: () = assert!(offset_of!(EventApiV1, subscribe_sync) == 72);

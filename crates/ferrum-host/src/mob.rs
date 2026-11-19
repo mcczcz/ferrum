@@ -21,9 +21,17 @@ extern "C" fn max_health(id: ActorRuntimeId, out: *mut f32) -> FerrumStatus {
 extern "C" fn set_health(id: ActorRuntimeId, value: f32) -> FerrumStatus {
     call(|a| (a.set_health)(id, value))
 }
+extern "C" fn is_sprinting(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
+    call(|a| (a.is_sprinting)(id, out))
+}
+extern "C" fn set_sprinting(id: ActorRuntimeId, value: FfiBool) -> FerrumStatus {
+    call(|a| (a.set_sprinting)(id, value))
+}
 pub static MOB_V1: MobApiV1 = MobApiV1 {
     struct_size: size_of::<MobApiV1>() as u32,
     health,
     max_health,
     set_health,
+    is_sprinting,
+    set_sprinting,
 };

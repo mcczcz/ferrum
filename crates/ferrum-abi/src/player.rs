@@ -43,4 +43,8 @@ pub struct PlayerApiV1 {
     pub set_health: extern "C" fn(ActorRuntimeId, f32) -> FerrumStatus,
     pub game_mode: extern "C" fn(ActorRuntimeId, *mut GameMode) -> FerrumStatus,
     pub set_game_mode: extern "C" fn(ActorRuntimeId, GameMode) -> FerrumStatus,
+    pub xp_earned_at_current_level: extern "C" fn(ActorRuntimeId, *mut i32) -> FerrumStatus,
+    pub xp_needed_for_next_level: extern "C" fn(ActorRuntimeId, *mut i32) -> FerrumStatus,
+    pub add_experience: extern "C" fn(ActorRuntimeId, i32) -> FerrumStatus,
+    pub is_hungry: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus,
 }

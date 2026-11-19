@@ -330,6 +330,81 @@ static FerrumStatus playerMaxHealth(ActorRuntimeId id, float* out) noexcept {
 static FerrumStatus playerSetHealth(ActorRuntimeId id, float value) noexcept {
     return withPlayer(id, [&] { return mobSetHealth(id, value); });
 }
+static FerrumStatus actorNameTag(ActorRuntimeId id, FfiByteWriter* out) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        auto name = actor.getNameTag();
+        return writeBytes(out, name.data(), name.size());
+    });
+}
+static FerrumStatus actorSetNameTag(ActorRuntimeId id, FfiStr name) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        actor.setNameTag(std::string{view(name)});
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus actorIsOnGround(ActorRuntimeId id, FfiBool* out) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = actor.isOnGround() ? FfiBool_TRUE : FfiBool_FALSE;
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus actorIsInWater(ActorRuntimeId id, FfiBool* out) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = actor.isInWater() ? FfiBool_TRUE : FfiBool_FALSE;
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus mobIsSprinting(ActorRuntimeId id, FfiBool* out) noexcept {
+    return withMob(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = actor.isSprinting() ? FfiBool_TRUE : FfiBool_FALSE;
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus mobSetSprinting(ActorRuntimeId id, FfiBool sprinting) noexcept {
+    return withMob(id, [&](Actor& actor) {
+        static_cast<Mob&>(actor).setSprinting(sprinting != 0);
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus playerXpEarnedAtCurrentLevel(ActorRuntimeId id, int32_t* out) noexcept {
+    return guarded([&] {
+        auto* player = resolve(id);
+        if (!player) return FerrumStatus_NOT_FOUND;
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = player->getXpEarnedAtCurrentLevel();
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus playerXpNeededForNextLevel(ActorRuntimeId id, int32_t* out) noexcept {
+    return guarded([&] {
+        auto* player = resolve(id);
+        if (!player) return FerrumStatus_NOT_FOUND;
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = player->getXpNeededForNextLevel();
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus playerAddExperience(ActorRuntimeId id, int32_t points) noexcept {
+    return guarded([&] {
+        auto* player = resolve(id);
+        if (!player) return FerrumStatus_NOT_FOUND;
+        if (points < 0) return FerrumStatus_INVALID_ARGUMENT;
+        player->addExperience(points);
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus playerIsHungry(ActorRuntimeId id, FfiBool* out) noexcept {
+    return guarded([&] {
+        auto* player = resolve(id);
+        if (!player) return FerrumStatus_NOT_FOUND;
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = player->isHungry() ? FfiBool_TRUE : FfiBool_FALSE;
+        return FerrumStatus_OK;
+    });
+}
 static FerrumStatus playerGameMode(ActorRuntimeId id, FerrumGameMode* out) noexcept {
     return guarded([&] {
         if (!out) return FerrumStatus_NULL_POINTER;
@@ -618,9 +693,16 @@ void installDomainApi(FerrumShimApi& api) {
         actorKind,
         actorPosition,
         actorDimension,
-        actorTeleport
+        actorTeleport,
+        actorNameTag,
+        actorSetNameTag,
+        actorIsOnGround,
+        actorIsInWater
     };
-    api.mob_v1             = {sizeof(MobApiV1), mobHealth, mobMaxHealth, mobSetHealth};
+    api.mob_v1             = {sizeof(MobApiV1), mobHealth, mobMaxHealth, mobSetHealth,
+        mobIsSprinting,
+        mobSetSprinting
+    };
     api.block_v1           = {sizeof(BlockApiV1), blockType, blockRuntime, blockAir, blockSetType};
     api.command_register   = registerCommand;
     api.command_unregister = unregisterCommand;
@@ -647,7 +729,11 @@ void installDomainApi(FerrumShimApi& api) {
         playerMaxHealth,
         playerSetHealth,
         playerGameMode,
-        playerSetGameMode
+        playerSetGameMode,
+        playerXpEarnedAtCurrentLevel,
+        playerXpNeededForNextLevel,
+        playerAddExperience,
+        playerIsHungry
     };
 }
 } // namespace ferrum

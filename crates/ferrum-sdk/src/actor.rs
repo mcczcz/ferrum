@@ -1,5 +1,6 @@
 use crate::{MainThreadToken, MobRef, PlayerRef, Result, host, sealed};
 pub use ferrum_abi::{ActorKind, ActorRuntimeId, ActorUniqueId, DimensionId, Vec3};
+use ferrum_abi::{FfiBool, FfiStr};
 use std::marker::PhantomData;
 
 /// 任意实体的主线程瞬态引用；仅保存 ID，每次调用重新解析。
@@ -96,5 +97,31 @@ pub trait ActorOps<'tick>: sealed::Sealed + Copy {
             position,
             dimension,
         ))
+    }
+    fn name_tag(&self) -> Result<String> {
+        let read = host::actor_api()?.name_tag()?;
+        host::read_string(|out| read(self.runtime_id(), out))
+    }
+    fn set_name_tag(&self, name: &str) -> Result<()> {
+        host::check((host::actor_api()?.set_name_tag()?)(
+            self.runtime_id(),
+            FfiStr::new(name),
+        ))
+    }
+    fn is_on_ground(&self) -> Result<bool> {
+        let mut out = FfiBool::FALSE;
+        host::check((host::actor_api()?.is_on_ground()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out.get())
+    }
+    fn is_in_water(&self) -> Result<bool> {
+        let mut out = FfiBool::FALSE;
+        host::check((host::actor_api()?.is_in_water()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out.get())
     }
 }
