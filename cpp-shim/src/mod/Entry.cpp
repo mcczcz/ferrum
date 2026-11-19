@@ -7,6 +7,8 @@
 #include "ferrum/ferrum_abi.h"
 
 #include "ll/api/mod/ModManagerRegistry.h"
+#include "ll/api/event/EventBus.h"
+#include "ll/api/event/world/ServerLevelTickEvent.h"
 #include "ll/api/mod/RegisterHelper.h"
 
 #include <filesystem>
@@ -69,12 +71,28 @@ bool Entry::enable() {
     getSelf().getLogger().debug("Enabling...");
     // enable 在服务端线程执行，此处记录主线程以供 MainThreadToken 校验。
     ferrum_host_mark_main_thread();
+    mTickListener = ll::event::EventBus::getInstance().emplaceListener<ll::event::ServerLevelTickEvent>(
+        [](ll::event::ServerLevelTickEvent&) {
+            auto status = ferrum_host_scheduler_tick();
+            if (status != FerrumStatus_OK) hostError(status).error().log(logger);
+        },
+        ll::event::EventPriority::Normal,
+        ll::mod::NativeMod::current()
+    );
+    if (!mTickListener) {
+        logger.error(tr("loader.scheduler_init_failed"));
+        return false;
+    }
     logger.info(tr("mod.enabled"));
     return true;
 }
 
 bool Entry::disable() {
     getSelf().getLogger().debug("Disabling...");
+    if (mTickListener) {
+        ll::event::EventBus::getInstance().removeListener(mTickListener);
+        mTickListener.reset();
+    }
     closeNativeEvents();
     logger.info(tr("mod.disabled"));
     return true;

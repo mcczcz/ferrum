@@ -5,7 +5,7 @@
 | M0 仓库骨架与生成管线 | 完成 |
 | M1 加载器最小闭环 | 完成 |
 | M2 回调基础设施与首批领域 API | 进行中，缺真实 BDS 验收 |
-| M3 调度与异步 | 未开始 |
+| M3 调度与异步 | API 已实现，待 BDS 重载验收 |
 | M4 表单、跨模组服务、更多领域 | 未开始 |
 | M5 真正的热卸载（可选） | 未开始 |
 
@@ -37,9 +37,9 @@
 
 ## M3 调度与异步
 
-- [ ] `SchedulerApiV1`：`post`、`after_ticks`、`every_ticks`、`cancel`；停用时取消
-- [ ] SDK：运行时无关的 `on_main_thread(...).await`；停用时等待方收到 `ModDisabled`
-- [ ] 非 `Send` 闭包只在主线程析构
+- [x] `SchedulerApiV1`：`post`、`after_ticks`、`every_ticks`、`cancel`；停用时取消
+- [x] SDK：运行时无关的 `on_main_thread(...).await`；停用时等待方收到 `ModDisabled`
+- [x] 非 `Send` 闭包只在主线程析构
 - [ ] 验收：tokio 示例模组连续 reload 100 次，无崩溃、无悬挂 future
 
 ## M4 表单、服务、更多领域

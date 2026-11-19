@@ -263,6 +263,7 @@ pub fn enable(raw: u64) -> FerrumStatus {
         if !status.is_ok() {
             // on_enable 失败（含 panic）：模组进入 Disabled。
             entry.set_state(ModState::Disabled);
+            crate::scheduler::revoke(ctx);
             crate::command::revoke(ctx);
             crate::event::revoke(ctx);
             crate::custom_event::revoke(ctx);
@@ -296,6 +297,7 @@ pub fn disable(raw: u64) -> FerrumStatus {
     }
     // 1. 关闸
     entry.set_state(ModState::Disabling);
+    crate::scheduler::revoke(ctx);
     {
         let mut own = entry.ownership.lock().unwrap_or_else(|e| e.into_inner());
         if own.active_invocations > 0 {

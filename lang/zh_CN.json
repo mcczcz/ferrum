@@ -9,6 +9,7 @@
     "loader.loaded": "Ferrum 加载器已就绪（ABI {}.{}.{}），已注册模组类型 \"ferrum\"",
     "loader.host_init_failed": "初始化 ferrum-host 运行时失败",
     "loader.manager_register_failed": "注册 \"ferrum\" 类型模组管理器失败（是否已被注册？）",
+    "loader.scheduler_init_failed": "初始化 Ferrum 主线程调度器失败",
     "config.not_found": "配置文件未找到，正在创建新文件: {}",
     "config.load_error": "加载配置文件失败。",
     "config.parse_error": "解析配置文件失败: {}。请检查语法错误。",

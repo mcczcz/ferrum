@@ -134,6 +134,14 @@ macro_rules! domain_api {
     };
 }
 
+domain_api!(SchedulerApi, scheduler_api, SchedulerApiV1, "ferrum.scheduler.v1",
+    "宿主未提供调度 API（需要 ABI 1.2）", "调度 API 子表不完整", {
+    post: extern "C" fn(ModContextHandle, ferrum_abi::TaskCallbackV1, *mut ferrum_abi::TaskHandle) -> FerrumStatus;
+    after_ticks: extern "C" fn(ModContextHandle, u64, ferrum_abi::TaskCallbackV1, *mut ferrum_abi::TaskHandle) -> FerrumStatus;
+    every_ticks: extern "C" fn(ModContextHandle, u64, ferrum_abi::TaskCallbackV1, *mut ferrum_abi::TaskHandle) -> FerrumStatus;
+    cancel: extern "C" fn(ModContextHandle, ferrum_abi::TaskHandle) -> FerrumStatus;
+});
+
 domain_api!(PlayerApi, player_api, PlayerApiV1, "ferrum.player.v1",
     "宿主未提供玩家 API（需要 ABI 1.1）", "玩家 API 子表不完整", {
     find_by_name: extern "C" fn(FfiStr<'_>, *mut ActorRuntimeId) -> FerrumStatus;

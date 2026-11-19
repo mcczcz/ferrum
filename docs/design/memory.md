@@ -73,4 +73,4 @@ pub struct EventCallbackV1 {
 - `invoke_fn` 与 `drop_fn` 只在主线程执行，且调用时宿主不持有锁。
 - `FnMut` 的重入守卫和 panic 毒化由 SDK 跳板实现，见 [errors.md](errors.md) 和 [threading.md](threading.md)。
 
-规划中：一次性回调（`FnOnce`，如 `after_ticks`、`on_main_thread`），尚未实现。
+`TaskCallbackV1` 支持一次性和周期任务。注册成功后，宿主负责在主线程调用 `drop_fn`；注册失败时，SDK 在提交线程收回闭包。一次性任务只消费一次 `FnOnce`。

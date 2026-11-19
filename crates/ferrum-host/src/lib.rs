@@ -23,5 +23,6 @@ pub mod mob;
 pub mod mock_support;
 pub mod player;
 pub mod runtime;
+mod scheduler;
 pub mod shim;
 pub mod vtable;

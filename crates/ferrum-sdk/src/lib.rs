@@ -35,6 +35,7 @@ mod lifecycle;
 mod logger;
 pub mod mob;
 pub mod player;
+pub mod scheduler;
 mod token;
 pub mod world;
 
@@ -56,6 +57,7 @@ pub use lifecycle::{FerrumMod, ModEntryPoint};
 pub use logger::{Level, Logger};
 pub use mob::{MobOps, MobRef};
 pub use player::{ActorRuntimeId, DimensionId, GameMode, PlayerRef, PlayerUuid, Vec3};
+pub use scheduler::{Scheduler, TaskHandle};
 pub use token::{MainThreadToken, is_main_thread};
 
 /// 本 SDK 的版本（写入模组描述符，仅用于诊断）。
@@ -82,7 +84,7 @@ pub mod prelude {
         BlockRuntimeId, CommandInvocation, CommandParamKind, CommandPermission, DimensionId, Error,
         ErrorKind, EventPriority, FerrumMod, GameMode, Level, ListenerHandle, Logger,
         MainThreadToken, MobOps, MobRef, ModContext, ModDir, PlayerRef, PlayerUuid, Result, Vec3,
-        world,
+        Scheduler, TaskHandle, world,
     };
 }
 

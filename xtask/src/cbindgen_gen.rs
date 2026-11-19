@@ -36,6 +36,7 @@ pub fn run(check: bool) -> Result<bool, String> {
                 "MobApiV1".to_owned(),
                 "BlockApiV1".to_owned(),
                 "CommandApiV1".to_owned(),
+                "SchedulerApiV1".to_owned(),
                 "EventApiV1".to_owned(),
                 "NativeEventApiV1".to_owned(),
                 "CustomEventApiV1".to_owned(),

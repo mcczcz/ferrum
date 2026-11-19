@@ -246,6 +246,9 @@ extern "C" fn log_should_log(ctx: ModContextHandle, level: LogLevel) -> FfiBool 
 extern "C" fn query_interface(id: FfiStr<'_>, min_minor: u16) -> *const std::ffi::c_void {
     // SAFETY: ABI 保证 id 为本次同步调用内的有效借用视图。
     match unsafe { id.as_bytes() } {
+        b"ferrum.scheduler.v1" if min_minor == 0 => {
+            (&crate::scheduler::API as *const ferrum_abi::SchedulerApiV1).cast()
+        }
         b"ferrum.actor.v1" if min_minor == 0 => {
             (&crate::actor::ACTOR_V1 as *const ferrum_abi::ActorApiV1).cast()
         }

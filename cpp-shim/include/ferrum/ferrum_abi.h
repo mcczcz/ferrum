@@ -702,6 +702,37 @@ typedef struct CommandApiV1 {
 } CommandApiV1;
 
 /**
+ * 注册成功后宿主接管 env。invoke_fn 和 drop_fn 仅在服务端主线程串行调用。
+ */
+typedef struct TaskCallbackV1 {
+  void *env;
+  FerrumStatus (*invoke_fn)(void*, struct RawMainThreadToken);
+  void (*drop_fn)(void*);
+} TaskCallbackV1;
+
+typedef GenerationalHandle TaskHandle;
+
+typedef struct SchedulerApiV1 {
+  uint32_t struct_size;
+  /**
+   * 任意线程投递，下一 Tick 执行一次。
+   */
+  FerrumStatus (*post)(ModContextHandle, struct TaskCallbackV1, TaskHandle*);
+  /**
+   * 主线程注册，零延迟表示下一 Tick。
+   */
+  FerrumStatus (*after_ticks)(ModContextHandle, uint64_t, struct TaskCallbackV1, TaskHandle*);
+  /**
+   * 主线程注册，间隔必须大于零。
+   */
+  FerrumStatus (*every_ticks)(ModContextHandle, uint64_t, struct TaskCallbackV1, TaskHandle*);
+  /**
+   * 主线程取消本模组的任务。正在执行的回调可以取消自身。
+   */
+  FerrumStatus (*cancel)(ModContextHandle, TaskHandle);
+} SchedulerApiV1;
+
+/**
  * 注册成功才接管 env；调用与析构都在主线程且不持有宿主锁。
  */
 typedef struct EventCallbackV1 {
@@ -818,6 +849,8 @@ FerrumStatus ferrum_host_set_last_error(struct FfiStr message);
  * 由 shim 在服务端主线程上调用，记录主线程 ID。
  */
 void ferrum_host_mark_main_thread(void);
+
+FerrumStatus ferrum_host_scheduler_tick(void);
 
 /**
  * shim 在派发前确认当前线程，不会修改已记录的主线程。

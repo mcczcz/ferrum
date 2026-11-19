@@ -64,6 +64,11 @@ impl ModContext {
         crate::events::Events { ctx: self.handle }
     }
 
+    /// 投递主线程任务，或在模组自己的异步运行时等待主线程返回结果。
+    pub fn scheduler(&self) -> crate::Scheduler {
+        crate::Scheduler { ctx: self.handle }
+    }
+
     /// 第三方原生模组的通用事件协议。
     pub fn custom_events(&self) -> crate::custom_events::CustomEvents {
         crate::custom_events::CustomEvents { ctx: self.handle }

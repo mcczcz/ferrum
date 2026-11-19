@@ -2,12 +2,13 @@
 
 `ferrum-sdk` 公开 API 速查。示例默认已 `use ferrum_sdk::prelude::*;`。
 
-当前 ABI 为 `1.1`。下表的 ABI 列表示该能力需要的最低宿主 ABI；旧宿主上调用 1.1 接口返回 `Unsupported`。
+当前 ABI 为 `1.2`。下表列出各项能力所需的最低宿主 ABI。宿主缺少所请求的接口时，SDK 返回 `Unsupported`。
 
 | 能力 | ABI |
 | --- | --- |
 | 生命周期、日志、目录 | 1.0 |
 | 玩家、实体、方块、命令、事件 | 1.1 |
+| 主线程投递、Tick 定时任务、异步等待主线程结果 | 1.2 |
 
 ## 入口与生命周期
 
@@ -246,9 +247,34 @@ ctx.events().unsubscribe(token, h)?; // 可选，提前移除
 
 跨语言自定义事件（`ctx.custom_events()`）与完整规则见 [events.md](./events.md)。
 
-## 后台线程注意事项
+## 主线程调度与异步调用
 
-调度器 API 尚未提供（规划中，见 [../roadmap.md](../roadmap.md)）。自行 `std::thread::spawn` 或创建 tokio runtime 时：
+通过 `ctx.scheduler()` 取得可跨线程复制的调度器。调度 API 需要宿主 ABI 1.2；依赖它才能启用的模组可声明 `#[ferrum_sdk::mod_entry(min_abi = "1.2")]`。
+
+| 方法 | 提交线程 | 执行时机 |
+| --- | --- | --- |
+| `post(f)` | 任意，闭包需 `Send` | 下一个服务端 Tick |
+| `after_ticks(token, ticks, f)` | 主线程，可捕获 `Rc` | 延迟指定 Tick，零延迟在下一 Tick 执行 |
+| `every_ticks(token, interval, f)` | 主线程，可捕获 `Rc` | 每隔指定 Tick 执行一次，间隔至少为 1 |
+| `cancel(token, handle)` | 主线程 | 取消本模组的任务，正在执行的一次可以完成 |
+
+这些任务可在 `on_enable` 和启用期间注册。同一 Tick 到期的任务按入队顺序执行。并发提交以宿主取得队列锁的顺序为准，周期任务每次重新排期时领取新的序号。周期回调返回错误或 panic 会结束该任务。停用和启用失败时，宿主在主线程撤销剩余任务并析构闭包。
+
+后台 Future 可以等待主线程计算的结果，例如读取在线人数：
+
+```rust
+use ferrum_sdk::prelude::*;
+
+async fn online_count(ctx: ModContext) -> Result<usize> {
+    ctx.scheduler()
+        .on_main_thread(|token| Ok(world::online_players(token)?.len()))
+        .await
+}
+```
+
+首次轮询时提交任务。闭包在主线程获得本次调用的令牌，返回值必须是 `Send + 'static`。等待期间停用会返回 `ErrorKind::ModDisabled`。主线程需能继续推进 Tick，在当前 Tick 内同步阻塞等待结果会造成死锁。`MockHost::tick()` 可手动推进一次。
+
+自行使用 `std::thread::spawn` 或 Tokio 运行时：
 
 1. 保存停止信号（`AtomicBool`、`CancellationToken`）和 `JoinHandle`。`ModContext`、`Logger` 可直接移入线程。
 2. `on_disable` 里发停止信号。

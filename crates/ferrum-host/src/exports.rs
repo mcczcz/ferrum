@@ -68,6 +68,11 @@ pub extern "C" fn ferrum_host_mark_main_thread() {
     vtable::mark_main_thread();
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn ferrum_host_scheduler_tick() -> FerrumStatus {
+    guard(crate::scheduler::tick)
+}
+
 /// shim 在派发前确认当前线程，不会修改已记录的主线程。
 #[unsafe(no_mangle)]
 pub extern "C" fn ferrum_host_is_main_thread() -> ferrum_abi::FfiBool {

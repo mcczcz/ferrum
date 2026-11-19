@@ -50,7 +50,7 @@ BDS 对应关系（`cpp-shim/src/ferrum/DomainApi.cpp`）：
 3. 回到主线程。
 4. 持 token 重新解析：`world::get_player(token, uuid)`，玩家已退服则得到 `None`。
 
-回到主线程的调度 API（`on_main_thread` 等）尚未实现，规划中。
+后台任务可通过 `ctx.scheduler().on_main_thread(...).await` 传入值标识，在主线程闭包中重新解析实体。
 
 ## 4. 代数句柄池
 

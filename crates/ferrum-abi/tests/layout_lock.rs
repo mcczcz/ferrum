@@ -277,3 +277,18 @@ const _: () = assert!(offset_of!(CustomEventViewApiV1, get_uuid) == 64);
 const _: () = assert!(offset_of!(CustomEventViewApiV1, is_cancelled) == 72);
 const _: () = assert!(offset_of!(CustomEventViewApiV1, cancel) == 80);
 const _: () = assert!(offset_of!(CustomEventViewApiV1, is_active) == 88);
+
+const _: () = assert!(size_of::<TaskHandle>() == 8);
+const _: () = assert!(align_of::<TaskHandle>() == 8);
+const _: () = assert!(size_of::<TaskCallbackV1>() == 24);
+const _: () = assert!(align_of::<TaskCallbackV1>() == 8);
+const _: () = assert!(offset_of!(TaskCallbackV1, env) == 0);
+const _: () = assert!(offset_of!(TaskCallbackV1, invoke_fn) == 8);
+const _: () = assert!(offset_of!(TaskCallbackV1, drop_fn) == 16);
+const _: () = assert!(size_of::<SchedulerApiV1>() >= 40);
+const _: () = assert!(align_of::<SchedulerApiV1>() == 8);
+const _: () = assert!(offset_of!(SchedulerApiV1, struct_size) == 0);
+const _: () = assert!(offset_of!(SchedulerApiV1, post) == 8);
+const _: () = assert!(offset_of!(SchedulerApiV1, after_ticks) == 16);
+const _: () = assert!(offset_of!(SchedulerApiV1, every_ticks) == 24);
+const _: () = assert!(offset_of!(SchedulerApiV1, cancel) == 32);

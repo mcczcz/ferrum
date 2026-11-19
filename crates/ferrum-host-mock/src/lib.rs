@@ -171,6 +171,13 @@ impl MockHost {
         self.flush_disables();
         result
     }
+
+    /// 推进一个服务端 Tick，并执行到期任务。
+    pub fn tick(&self) -> Result<(), Error> {
+        let result = check(exports::ferrum_host_scheduler_tick());
+        self.flush_disables();
+        result
+    }
     /// Loaded / Disabled 状态直接成功，与真实宿主保持一致。
     pub fn disable(&self, m: &MockMod) -> Result<(), Error> {
         let result = check(exports::ferrum_host_disable_mod(m.ctx.0.to_raw()));

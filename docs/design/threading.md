@@ -11,7 +11,7 @@
 
 测试时，`ferrum-host-mock` 通过 `ferrum-host/mock` feature 使用同一套宿主逻辑。shim 函数表、SDK 根表和自定义事件 hooks 保持固定；互斥的 mock 会话只在旧模组全部卸载后重新绑定主线程并清理假世界。生产构建仍使用只初始化一次的主线程 ID。
 
-调度器与 `async` 桥接：规划中，见 [../roadmap.md](../roadmap.md)。
+加载器监听 `ServerLevelTickEvent` 并驱动调度队列。后台线程可投递 `Send` 闭包，按 Tick 的定时任务允许在主线程注册非 `Send` 闭包。停用先关闭任务入口并撤销队列中的任务，等待 `on_main_thread` 的 Future 被唤醒；执行中的回调由 `Invocation` 守卫持有至返回。见 [SDK 指南](../guide/sdk.md#主线程调度与异步调用)。
 
 ## MainThreadToken
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ll/api/mod/NativeMod.h"
+#include "ll/api/event/ListenerBase.h"
 
 #include <memory>
 
@@ -29,6 +30,7 @@ public:
 private:
     ll::mod::NativeMod&               mSelf;
     std::shared_ptr<FerrumModManager> mManager;
+    ll::event::ListenerPtr            mTickListener;
 };
 
 } // namespace ferrum

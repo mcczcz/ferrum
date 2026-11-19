@@ -112,6 +112,17 @@ fn assertions() -> Vec<String> {
         set_game_mode
     );
     lock!(out, CommandHandle);
+    lock!(out, TaskHandle);
+    lock!(out, TaskCallbackV1, env, invoke_fn, drop_fn);
+    lock!(
+        out,
+        SchedulerApiV1,
+        struct_size,
+        post,
+        after_ticks,
+        every_ticks,
+        cancel
+    );
     lock!(out, ListenerHandle);
     lock!(out, EventProviderHandle);
     lock!(

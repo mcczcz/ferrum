@@ -19,6 +19,7 @@ mod handle;
 mod host_api;
 mod module;
 mod player;
+mod scheduler;
 mod status;
 mod version;
 
@@ -32,5 +33,6 @@ pub use handle::*;
 pub use host_api::*;
 pub use module::*;
 pub use player::*;
+pub use scheduler::*;
 pub use status::*;
 pub use version::*;

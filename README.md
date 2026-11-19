@@ -5,7 +5,7 @@ Ferrum 是构建在 [LeviLamina](https://github.com/LiteLDev/LeviLamina) 之上�
 无需 C++ 工具链、无需 BDS 头文件。
 
 > 可用 API：生命周期、日志、模组元数据与目录、panic 防火墙、玩家/实体/方块、命令、玩家事件、自定义事件。
-> 调度、表单等按 [路线图](docs/roadmap.md) 逐步加入。
+> ABI 1.2 提供主线程 Tick 调度和可从后台异步任务等待的主线程调用。用法见 [SDK 指南](docs/guide/sdk.md#主线程调度与异步调用)。
 
 ## 写一个模组
 
