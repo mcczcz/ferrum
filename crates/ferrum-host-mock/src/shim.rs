@@ -49,6 +49,7 @@ pub(super) fn api() -> FerrumShimApi {
         event_payload_snbt: events::payload_snbt,
         event_actor: events::actor,
         llmoney_v1: None,
+        form_send: None,
         event_player: events::player,
         event_is_cancelled: events::cancelled,
         event_cancel: events::cancel,

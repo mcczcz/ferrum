@@ -94,6 +94,8 @@ pub type ModEntryFnV1 = unsafe extern "C" fn(
 
 ABI 1.3 新增 `ferrum.llmoney.v1`。SDK 的 `ferrum_sdk::llmoney` 模块通过主线程令牌访问余额、转账、交易记录和排行榜。LegacyMoney 为可选依赖，缺失或停用时调用返回 `SERVICE_UNAVAILABLE`，缺少对应导出函数时返回 `UNSUPPORTED`。
 
+ABI 1.3 开发版加入 `ferrum.form.v1`。表单与响应通过借用的 JSON 传递，宿主在服务端主线程调用并释放一次性回调。SDK 在查询不到子表时返回 `UNSUPPORTED`。
+
 ## 4. 布局锁
 
 `crates/ferrum-abi/tests/layout_lock.rs` 锁定已登记类型的对齐和字段偏移。按值传递的类型锁定精确大小。以 `struct_size` 开头的可扩展表和配置结构以各版已发布的大小作为下限。

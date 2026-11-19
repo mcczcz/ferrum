@@ -144,6 +144,9 @@ fn assertions() -> Vec<String> {
     );
     lock!(out, CommandHandle);
     lock!(out, TaskHandle);
+    lock!(out, FormResponseKind);
+    lock!(out, FormCallbackV1, env, invoke_fn, drop_fn);
+    lock!(out, FormApiV1, struct_size, send);
     lock!(out, TaskCallbackV1, env, invoke_fn, drop_fn);
     lock!(
         out,

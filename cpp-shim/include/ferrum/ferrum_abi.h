@@ -553,6 +553,7 @@ typedef struct FerrumShimApi {
    * 返回 shim 内进程期有效的静态适配表。
    */
   const struct LlMoneyApiV1 *(*llmoney_v1)(void);
+  FerrumStatus (*form_send)(uint64_t, ActorRuntimeId, struct FfiStr);
 } FerrumShimApi;
 
 typedef struct AbiVersion {
@@ -560,6 +561,16 @@ typedef struct AbiVersion {
   uint16_t minor;
   uint32_t patch;
 } AbiVersion;
+
+/**
+ * 0..=255 保留给基岩版的取消原因。
+ */
+typedef uint32_t FormResponseKind;
+#define FormResponseKind_USER_CLOSED 0
+#define FormResponseKind_USER_BUSY 1
+#define FormResponseKind_CANCELLED 256
+#define FormResponseKind_SUBMITTED 257
+#define FormResponseKind_DISCONNECTED 258
 
 /**
  * `cpp-shim` 调用 `ferrum_host_load_mod` 时提供的模组信息（所有字符串为 UTF-8，仅本次调用内有效）。
@@ -801,6 +812,27 @@ typedef struct SchedulerApiV1 {
 } SchedulerApiV1;
 
 /**
+ * 发送成功后由宿主接管 env。回调最多调用一次，响应视图仅在回调期间有效。
+ */
+typedef struct FormCallbackV1 {
+  void *env;
+  FerrumStatus (*invoke_fn)(void*,
+                            struct RawMainThreadToken,
+                            ActorRuntimeId,
+                            FormResponseKind,
+                            struct FfiStr);
+  void (*drop_fn)(void*);
+} FormCallbackV1;
+
+typedef struct FormApiV1 {
+  uint32_t struct_size;
+  /**
+   * 主线程发送一张表单，json 在本次调用内借用。
+   */
+  FerrumStatus (*send)(ModContextHandle, ActorRuntimeId, struct FfiStr, struct FormCallbackV1);
+} FormApiV1;
+
+/**
  * 注册成功才接管 env；调用与析构都在主线程且不持有宿主锁。
  */
 typedef struct EventCallbackV1 {
@@ -943,6 +975,14 @@ FerrumStatus ferrum_host_set_last_error(struct FfiStr message);
 void ferrum_host_mark_main_thread(void);
 
 FerrumStatus ferrum_host_scheduler_tick(void);
+
+FerrumStatus ferrum_host_form_response(uint64_t id,
+                                       ActorRuntimeId player,
+                                       struct PlayerUuid uuid,
+                                       FormResponseKind kind,
+                                       struct FfiStr json);
+
+FerrumStatus ferrum_host_form_disconnect(struct PlayerUuid player);
 
 /**
  * shim 在派发前确认当前线程，不会修改已记录的主线程。

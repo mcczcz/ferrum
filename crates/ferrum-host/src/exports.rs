@@ -3,7 +3,10 @@
 //! 全部以 [`guard`] 包裹；失败时详情写入当前线程的 `LastErrorSlot`，
 //! shim 通过 [`ferrum_host_take_last_error`] 取回。
 
-use ferrum_abi::{AbiVersion, FerrumStatus, FfiByteWriter, LogLevel};
+use ferrum_abi::{
+    AbiVersion, ActorRuntimeId, FerrumStatus, FfiByteWriter, FfiStr, FormResponseKind, LogLevel,
+    PlayerUuid,
+};
 
 use crate::last_error;
 use crate::loader;
@@ -71,6 +74,22 @@ pub extern "C" fn ferrum_host_mark_main_thread() {
 #[unsafe(no_mangle)]
 pub extern "C" fn ferrum_host_scheduler_tick() -> FerrumStatus {
     guard(crate::scheduler::tick)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ferrum_host_form_response(
+    id: u64,
+    player: ActorRuntimeId,
+    uuid: PlayerUuid,
+    kind: FormResponseKind,
+    json: FfiStr<'_>,
+) -> FerrumStatus {
+    guard(|| crate::form::respond(id, player, uuid, kind, json))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ferrum_host_form_disconnect(player: PlayerUuid) -> FerrumStatus {
+    guard(|| crate::form::disconnect(player))
 }
 
 /// shim 在派发前确认当前线程，不会修改已记录的主线程。

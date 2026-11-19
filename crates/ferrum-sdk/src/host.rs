@@ -142,6 +142,11 @@ domain_api!(SchedulerApi, scheduler_api, SchedulerApiV1, "ferrum.scheduler.v1",
     cancel: extern "C" fn(ModContextHandle, ferrum_abi::TaskHandle) -> FerrumStatus;
 });
 
+domain_api!(FormApi, form_api, FormApiV1, "ferrum.form.v1",
+    "宿主未提供表单 API", "表单 API 子表不完整", {
+    send: extern "C" fn(ModContextHandle, ActorRuntimeId, FfiStr<'_>, ferrum_abi::FormCallbackV1) -> FerrumStatus;
+});
+
 domain_api!(PlayerApi, player_api, PlayerApiV1, "ferrum.player.v1",
     "宿主未提供玩家 API（需要 ABI 1.1）", "玩家 API 子表不完整", {
     find_by_name: extern "C" fn(FfiStr<'_>, *mut ActorRuntimeId) -> FerrumStatus;

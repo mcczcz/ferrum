@@ -31,6 +31,9 @@ private:
     ll::mod::NativeMod&               mSelf;
     std::shared_ptr<FerrumModManager> mManager;
     ll::event::ListenerPtr            mTickListener;
+#ifdef LL_PLAT_S
+    ll::event::ListenerPtr            mFormDisconnectListener;
+#endif
 };
 
 } // namespace ferrum

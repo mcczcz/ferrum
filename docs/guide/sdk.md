@@ -248,6 +248,32 @@ ctx.events().unsubscribe(token, h)?; // 可选，提前移除
 
 完整官方事件清单、控制台与服务事件的同步订阅示例，以及跨语言自定义事件用法见 [events.md](./events.md)。
 
+## 表单
+
+服务端模组可用 `ferrum_sdk::form` 发送按钮菜单 `SimpleForm`、双按钮确认框 `ModalForm` 和自定义表单 `CustomForm`。发送时传入当前模组的 `&ModContext` 和主线程取得的 `PlayerRef`。回调最多执行一次，并获得响应时的玩家引用与主线程令牌。
+
+```rust
+use ferrum_sdk::form::{CustomForm, FormOutcome};
+
+CustomForm::new("偏好设置")
+    .input("name", "显示名称", "请输入名称", "")
+    .toggle("enabled", "接收提醒", true)
+    .send(ctx, player, |player, outcome, _token| {
+        if let FormOutcome::Submitted(response) = outcome {
+            player.send_message(format!(
+                "{}，提醒设置为 {}",
+                response.text("name")?,
+                response.toggle("enabled")?,
+            ))?;
+        }
+        Ok(())
+    })?;
+```
+
+`SimpleForm` 返回从 0 开始的按钮索引，`ModalForm` 返回 `ModalChoice::First` 或 `ModalChoice::Second`。自定义表单的下拉框和步进滑块可用 `response.choice(name)` 取选项索引，普通滑块可用 `response.slider(name)` 取数值。玩家关闭表单或客户端忙时收到 `FormOutcome::Cancelled`。
+
+三种表单都支持 `send_async(ctx, player)?`。调用时立即发送，返回可跨线程等待的 Future。玩家断线时 Future 返回 `ErrorKind::NotFound`，模组停用时返回 `ErrorKind::ModDisabled`。若使用回调版，这两种情况只释放闭包。
+
 ## 主线程调度与异步调用
 
 通过 `ctx.scheduler()` 取得可跨线程复制的调度器。调度 API 需要宿主 ABI 1.2；依赖它才能启用的模组可声明 `#[ferrum_sdk::mod_entry(min_abi = "1.2")]`。

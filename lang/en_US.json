@@ -10,6 +10,7 @@
     "loader.host_init_failed": "Failed to initialize ferrum-host runtime",
     "loader.manager_register_failed": "Failed to register mod manager for type \"ferrum\" (already registered?)",
     "loader.scheduler_init_failed": "Failed to initialize the Ferrum main-thread scheduler",
+    "loader.form_init_failed": "Failed to initialize the Ferrum form disconnect listener",
     "config.not_found": "Config file not found, creating a new one at: {}",
     "config.load_error": "Failed to load config file.",
     "config.parse_error": "Failed to parse config file: {}. Please check for syntax errors.",

@@ -2,9 +2,13 @@
 #include "ferrum/EventApi.h"
 #include "I18n/I18n.h"
 #include "ferrum/FerrumModManager.h"
+#include "mod/Global.h"
 #include "ll/api/command/CommandHandle.h"
 #include "ll/api/command/CommandRegistrar.h"
 #include "ll/api/command/runtime/RuntimeOverload.h"
+#ifdef LL_PLAT_S
+#include "ll/api/form/FormBase.h"
+#endif
 #include "ll/api/service/Bedrock.h"
 #include "ll/api/utils/ErrorUtils.h"
 #include "mc/legacy/ActorRuntimeID.h"
@@ -188,6 +192,42 @@ static PlayerUuid toUuid(mce::UUID const& uuid) {
     }
     return out;
 }
+#ifdef LL_PLAT_S
+static FerrumStatus sendForm(uint64_t id, ActorRuntimeId player, FfiStr json) noexcept {
+    return guarded([&] {
+        auto* target = resolve(player);
+        if (!target) return FerrumStatus_NOT_FOUND;
+        bool sent = ll::form::Form::sendRawTo(
+            *target,
+            std::string(view(json)),
+            [id](Player& source, std::optional<std::string> response, ll::form::FormCancelReason reason) noexcept {
+                auto status = guarded([&] {
+                    FormResponseKind kind = FormResponseKind_CANCELLED;
+                    if (reason) {
+                        kind = static_cast<uint32_t>(*reason);
+                    } else if (response) {
+                        kind = FormResponseKind_SUBMITTED;
+                    }
+                    return ferrum_host_form_response(
+                        id,
+                        source.getRuntimeID().rawID,
+                        toUuid(source.getUuid()),
+                        kind,
+                        ffi(response ? std::string_view(*response) : std::string_view{})
+                    );
+                });
+                if (status != FerrumStatus_OK) hostError(status).error().log(logger);
+            }
+        );
+        return sent ? FerrumStatus_OK : FerrumStatus_FAILED;
+    });
+}
+
+FerrumStatus formPlayerDisconnected(Player& player) noexcept {
+    return guarded([&] { return ferrum_host_form_disconnect(toUuid(player.getUuid())); });
+}
+#endif
+
 static FerrumStatus findUuid(PlayerUuid uuid, ActorRuntimeId* out) noexcept {
     return guarded([&] {
         if (!out) return FerrumStatus_NULL_POINTER;
@@ -685,6 +725,9 @@ static FerrumStatus commandOutput(uint64_t id, FfiBool error, FfiStr text) noexc
 }
 void installDomainApi(FerrumShimApi& api) {
     api.llmoney_v1 = llMoneyApi;
+#ifdef LL_PLAT_S
+    api.form_send = sendForm;
+#endif
     installEventApi(api);
     api.actor_v1 = {
         sizeof(ActorApiV1),

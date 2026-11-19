@@ -329,3 +329,15 @@ const _: () = assert!(offset_of!(LlMoneyApiV1, transfer) == 40);
 const _: () = assert!(offset_of!(LlMoneyApiV1, history) == 48);
 const _: () = assert!(offset_of!(LlMoneyApiV1, clear_history) == 56);
 const _: () = assert!(offset_of!(LlMoneyApiV1, ranking) == 64);
+
+const _: () = assert!(size_of::<FormResponseKind>() == 4);
+const _: () = assert!(align_of::<FormResponseKind>() == 4);
+const _: () = assert!(size_of::<FormCallbackV1>() == 24);
+const _: () = assert!(align_of::<FormCallbackV1>() == 8);
+const _: () = assert!(offset_of!(FormCallbackV1, env) == 0);
+const _: () = assert!(offset_of!(FormCallbackV1, invoke_fn) == 8);
+const _: () = assert!(offset_of!(FormCallbackV1, drop_fn) == 16);
+const _: () = assert!(size_of::<FormApiV1>() >= 16);
+const _: () = assert!(align_of::<FormApiV1>() == 8);
+const _: () = assert!(offset_of!(FormApiV1, struct_size) == 0);
+const _: () = assert!(offset_of!(FormApiV1, send) == 8);

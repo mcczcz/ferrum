@@ -32,6 +32,7 @@ pub mod events;
 mod firewall;
 mod host;
 mod lifecycle;
+pub mod form;
 pub mod llmoney;
 mod logger;
 pub mod mob;

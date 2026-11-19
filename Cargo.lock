@@ -91,6 +91,7 @@ dependencies = [
  "ferrum-abi",
  "ferrum-macros",
  "futures-channel",
+ "serde_json",
 ]
 
 [[package]]
