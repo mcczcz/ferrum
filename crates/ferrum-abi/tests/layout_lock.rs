@@ -351,3 +351,9 @@ const _: () = assert!(size_of::<PlayerApiV1>() >= 168);
 const _: () = assert!(offset_of!(PlayerApiV1, snapshot) == 160);
 const _: () = assert!(size_of::<EventSubscriptionV1>() >= 16);
 const _: () = assert!(offset_of!(EventSubscriptionV1, include_payload) == 12);
+
+const _: () = assert!(size_of::<ActorApiV1>() >= 104);
+const _: () = assert!(offset_of!(ActorApiV1, nbt) == 96);
+const _: () = assert!(size_of::<BlockApiV1>() >= 56);
+const _: () = assert!(offset_of!(BlockApiV1, nbt) == 40);
+const _: () = assert!(offset_of!(BlockApiV1, block_entity_nbt) == 48);

@@ -232,6 +232,8 @@ domain_api!(BlockApi, block_api, BlockApiV1, "ferrum.block.v1",
     runtime_id: extern "C" fn(DimensionId, BlockPos, *mut BlockRuntimeId) -> FerrumStatus;
     is_air: extern "C" fn(DimensionId, BlockPos, *mut FfiBool) -> FerrumStatus;
     set_type: extern "C" fn(DimensionId, BlockPos, FfiStr<'_>) -> FerrumStatus;
+    nbt: extern "C" fn(DimensionId, BlockPos, *mut FfiByteWriter) -> FerrumStatus;
+    block_entity_nbt: extern "C" fn(DimensionId, BlockPos, *mut FfiByteWriter) -> FerrumStatus;
 });
 
 domain_api!(ActorApi, actor_api, ActorApiV1, "ferrum.actor.v1",
@@ -247,6 +249,7 @@ domain_api!(ActorApi, actor_api, ActorApiV1, "ferrum.actor.v1",
     set_name_tag: extern "C" fn(ActorRuntimeId, FfiStr<'_>) -> FerrumStatus;
     is_on_ground: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
     is_in_water: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    nbt: extern "C" fn(ActorRuntimeId, *mut FfiByteWriter) -> FerrumStatus;
 });
 
 domain_api!(MobApi, mob_api, MobApiV1, "ferrum.mob.v1",

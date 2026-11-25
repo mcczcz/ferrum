@@ -28,10 +28,22 @@ extern "C" fn is_air(dim: DimensionId, pos: BlockPos, out: *mut FfiBool) -> Ferr
 extern "C" fn set_type(dim: DimensionId, pos: BlockPos, name: FfiStr<'_>) -> FerrumStatus {
     call(|a| (a.set_type)(dim, pos, name))
 }
+extern "C" fn nbt(dim: DimensionId, pos: BlockPos, out: *mut FfiByteWriter) -> FerrumStatus {
+    call(|a| (a.nbt)(dim, pos, out))
+}
+extern "C" fn block_entity_nbt(
+    dim: DimensionId,
+    pos: BlockPos,
+    out: *mut FfiByteWriter,
+) -> FerrumStatus {
+    call(|a| (a.block_entity_nbt)(dim, pos, out))
+}
 pub static BLOCK_V1: BlockApiV1 = BlockApiV1 {
     struct_size: size_of::<BlockApiV1>() as u32,
     type_name,
     runtime_id,
     is_air,
     set_type,
+    nbt,
+    block_entity_nbt,
 };

@@ -80,7 +80,8 @@ fn assertions() -> Vec<String> {
         name_tag,
         set_name_tag,
         is_on_ground,
-        is_in_water
+        is_in_water,
+        nbt
     );
     lock!(
         out,
@@ -99,7 +100,9 @@ fn assertions() -> Vec<String> {
         type_name,
         runtime_id,
         is_air,
-        set_type
+        set_type,
+        nbt,
+        block_entity_nbt
     );
     lock!(
         out,

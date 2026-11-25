@@ -15,3 +15,4 @@ ferrum-abi.workspace = true
 ferrum-macros.workspace = true
 futures-channel = "0.3"
 serde_json = "1"
+quartz_nbt = "0.2.9"

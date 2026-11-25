@@ -36,6 +36,7 @@ pub mod form;
 pub mod llmoney;
 mod logger;
 pub mod mob;
+pub mod nbt;
 pub mod player;
 pub mod scheduler;
 mod token;

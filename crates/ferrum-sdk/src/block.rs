@@ -33,6 +33,23 @@ impl<'tick> BlockRef<'tick> {
         let type_name = host::block_api()?.type_name()?;
         host::read_string(|w| type_name(self.dimension, self.position, w))
     }
+    /// 读取主方块层的状态 NBT（名称、状态属性及版本）。
+    pub fn nbt(&self) -> Result<crate::nbt::NbtCompound> {
+        let read = host::block_api()?.nbt()?;
+        let bytes = host::read_bytes(|out| read(self.dimension, self.position, out))
+            .map_err(host::error_from_status)?;
+        crate::nbt::decode(&bytes)
+    }
+    /// 读取箱子、告示牌等方块实体的存档。普通方块返回 None，区块未加载则返回错误。
+    pub fn block_entity_nbt(&self) -> Result<Option<crate::nbt::NbtCompound>> {
+        let read = host::block_api()?.block_entity_nbt()?;
+        let bytes = host::read_bytes(|out| read(self.dimension, self.position, out))
+            .map_err(host::error_from_status)?;
+        if bytes.is_empty() {
+            return Ok(None);
+        }
+        crate::nbt::decode(&bytes).map(Some)
+    }
     /// 当前进程注册表 ID，不能跨版本或跨重启保存。
     pub fn runtime_id(&self) -> Result<BlockRuntimeId> {
         let mut out = BlockRuntimeId::default();

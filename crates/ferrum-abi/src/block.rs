@@ -29,4 +29,8 @@ pub struct BlockApiV1 {
     pub is_air: extern "C" fn(DimensionId, BlockPos, *mut FfiBool) -> FerrumStatus,
     /// 按名称放置默认状态，更新邻居并同步客户端；不生成破坏掉落。
     pub set_type: extern "C" fn(DimensionId, BlockPos, FfiStr<'_>) -> FerrumStatus,
+    /// 主方块层的状态快照。输出未压缩、大端、带根名称的二进制 Compound。
+    pub nbt: extern "C" fn(DimensionId, BlockPos, *mut FfiByteWriter) -> FerrumStatus,
+    /// 同格式的方块实体存档。已加载位置没有方块实体时返回 OK，输出零字节。
+    pub block_entity_nbt: extern "C" fn(DimensionId, BlockPos, *mut FfiByteWriter) -> FerrumStatus,
 }

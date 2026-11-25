@@ -180,7 +180,22 @@ block.set_air()?;
 - `BlockRef` 只存维度和坐标，每次调用重新读取。`position()` / `dimension()` 不访问宿主。
 - `runtime_id()` 是当前进程的注册表 ID，不要跨重启或版本保存；持久化用类型名加坐标。
 - 只访问已存在维度的已加载区块，不强制加载。缺失维度、区块或未知方块名返回 `NotFound`；高度越界返回 `InvalidArgument`。
-- `set_type` 放置默认状态，触发邻居更新和客户端同步。不模拟玩家放置/挖掘，不产生掉落。不支持方块状态、NBT、容器。
+- `set_type` 放置默认状态，触发邻居更新和客户端同步。不模拟玩家放置/挖掘，不产生掉落。
+
+### NBT 快照
+
+ABI 1.5 提供三种读取入口。导入 `ferrum_sdk::prelude::*` 后，实体、生物和玩家都可以调用 `nbt()?` 读取实体存档。方块的 `nbt()?` 返回主方块层的名称和状态。箱子物品、告示牌文字等保存在独立的方块实体中，用 `block_entity_nbt()?` 读取。
+
+```rust
+let state = block.nbt()?;
+let name = state.get::<_, &str>("name");
+let states = state.get::<_, &ferrum_sdk::nbt::NbtCompound>("states");
+if let Some(data) = block.block_entity_nbt()? {
+    logger.info(data.to_snbt());
+}
+```
+
+已加载位置没有方块实体时得到 `Ok(None)`，实体已移除或区块未加载时得到 `NotFound`。返回的 `NbtCompound` 由模组拥有，可以跨 Tick 保存。对快照调用 `insert` 只会修改本地数据。`ferrum_sdk::nbt::snbt::parse` 可以从 SNBT 文本构造快照。
 
 ## 命令
 

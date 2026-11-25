@@ -70,6 +70,13 @@ pub trait ActorOps<'tick>: sealed::Sealed + Copy {
         let type_name = host::actor_api()?.type_name()?;
         host::read_string(|w| type_name(self.as_actor().id, w))
     }
+    /// 读取此刻的实体存档 NBT；快照可在当前 Tick 结束后继续使用。
+    fn nbt(&self) -> Result<crate::nbt::NbtCompound> {
+        let read = host::actor_api()?.nbt()?;
+        let bytes = host::read_bytes(|out| read(self.runtime_id(), out))
+            .map_err(host::error_from_status)?;
+        crate::nbt::decode(&bytes)
+    }
     fn kind(&self) -> Result<ActorKind> {
         let mut out = ActorKind::ACTOR;
         host::check((host::actor_api()?.kind()?)(self.as_actor().id, &mut out))?;

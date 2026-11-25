@@ -11,6 +11,7 @@
 #endif
 #include "ll/api/service/Bedrock.h"
 #include "ll/api/utils/ErrorUtils.h"
+#include "mc/deps/nbt/CompoundTag.h"
 #include "mc/legacy/ActorRuntimeID.h"
 #include "mc/legacy/ActorUniqueID.h"
 #include "mc/platform/UUID.h"
@@ -22,11 +23,13 @@
 #include "mc/world/attribute/BaseAttributeMap.h"
 #include "mc/world/attribute/MutableAttributeWithContext.h"
 #include "mc/world/attribute/SharedAttributes.h"
+#include "mc/world/item/SaveContext.h"
 #include "mc/world/level/BlockSource.h"
 #include "mc/world/level/GameType.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/block/Block.h"
 #include "mc/world/level/block/BlockChangeContext.h"
+#include "mc/world/level/block/actor/BlockActor.h"
 #include "mc/world/level/dimension/Dimension.h"
 #include "mc/world/level/dimension/DimensionType.h"
 #include <atomic>
@@ -106,6 +109,17 @@ static FerrumStatus actorType(ActorRuntimeId id, FfiByteWriter* out) noexcept {
         return writeBytes(out, name.data(), name.size());
     });
 }
+static FerrumStatus writeNbt(FfiByteWriter* out, CompoundTag const& tag) {
+    auto bytes = tag.toBinaryNbt(false);
+    return writeBytes(out, bytes.data(), bytes.size());
+}
+static FerrumStatus actorNbt(ActorRuntimeId id, FfiByteWriter* out) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        CompoundTag tag;
+        if (!actor.save(tag)) return FerrumStatus_FAILED;
+        return writeNbt(out, tag);
+    });
+}
 static FerrumStatus actorKind(ActorRuntimeId id, ActorKind* out) noexcept {
     return withActor(id, [&](Actor& actor) {
         if (!out) return FerrumStatus_NULL_POINTER;
@@ -132,6 +146,21 @@ static FerrumStatus blockType(FerrumDimensionId dim, FerrumBlockPos pos, FfiByte
     return withBlockSource(dim, pos, [&](BlockSource& source, ::BlockPos const& p) {
         auto name = source.getBlock(p).getTypeName();
         return writeBytes(out, name.data(), name.size());
+    });
+}
+static FerrumStatus blockNbt(FerrumDimensionId dim, FerrumBlockPos pos, FfiByteWriter* out) noexcept {
+    return withBlockSource(dim, pos, [&](BlockSource& source, ::BlockPos const& p) {
+        return writeNbt(out, source.getBlock(p).mSerializationId.get());
+    });
+}
+static FerrumStatus blockEntityNbt(FerrumDimensionId dim, FerrumBlockPos pos, FfiByteWriter* out) noexcept {
+    return withBlockSource(dim, pos, [&](BlockSource& source, ::BlockPos const& p) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        auto* entity = source.getBlockEntity(p);
+        if (!entity) return FerrumStatus_OK;
+        CompoundTag tag;
+        if (!entity->save(tag, SaveContext{SaveContext::SaveUseCase::SaveToDisk})) return FerrumStatus_FAILED;
+        return writeNbt(out, tag);
     });
 }
 static FerrumStatus blockRuntime(FerrumDimensionId dim, FerrumBlockPos pos, BlockRuntimeId* out) noexcept {
@@ -754,13 +783,14 @@ void installDomainApi(FerrumShimApi& api) {
         actorNameTag,
         actorSetNameTag,
         actorIsOnGround,
-        actorIsInWater
+        actorIsInWater,
+        actorNbt
     };
     api.mob_v1             = {sizeof(MobApiV1), mobHealth, mobMaxHealth, mobSetHealth,
         mobIsSprinting,
         mobSetSprinting
     };
-    api.block_v1           = {sizeof(BlockApiV1), blockType, blockRuntime, blockAir, blockSetType};
+    api.block_v1           = {sizeof(BlockApiV1), blockType, blockRuntime, blockAir, blockSetType, blockNbt, blockEntityNbt};
     api.command_register   = registerCommand;
     api.command_unregister = unregisterCommand;
     api.command_origin     = originPlayer;

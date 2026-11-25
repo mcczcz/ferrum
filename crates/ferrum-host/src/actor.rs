@@ -45,6 +45,9 @@ extern "C" fn is_on_ground(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatu
 extern "C" fn is_in_water(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
     call(|a| (a.is_in_water)(id, out))
 }
+extern "C" fn nbt(id: ActorRuntimeId, out: *mut FfiByteWriter) -> FerrumStatus {
+    call(|a| (a.nbt)(id, out))
+}
 pub static ACTOR_V1: ActorApiV1 = ActorApiV1 {
     struct_size: size_of::<ActorApiV1>() as u32,
     find_by_unique_id,
@@ -58,4 +61,5 @@ pub static ACTOR_V1: ActorApiV1 = ActorApiV1 {
     set_name_tag,
     is_on_ground,
     is_in_water,
+    nbt,
 };

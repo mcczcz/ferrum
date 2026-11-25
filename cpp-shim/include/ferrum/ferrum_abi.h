@@ -396,6 +396,14 @@ typedef struct BlockApiV1 {
    * 按名称放置默认状态，更新邻居并同步客户端；不生成破坏掉落。
    */
   FerrumStatus (*set_type)(FerrumDimensionId, struct FerrumBlockPos, struct FfiStr);
+  /**
+   * 主方块层的状态快照。输出未压缩、大端、带根名称的二进制 Compound。
+   */
+  FerrumStatus (*nbt)(FerrumDimensionId, struct FerrumBlockPos, struct FfiByteWriter*);
+  /**
+   * 同格式的方块实体存档。已加载位置没有方块实体时返回 OK，输出零字节。
+   */
+  FerrumStatus (*block_entity_nbt)(FerrumDimensionId, struct FerrumBlockPos, struct FfiByteWriter*);
 } BlockApiV1;
 
 typedef int64_t ActorUniqueId;
@@ -421,6 +429,10 @@ typedef struct ActorApiV1 {
   FerrumStatus (*set_name_tag)(ActorRuntimeId, struct FfiStr);
   FerrumStatus (*is_on_ground)(ActorRuntimeId, FfiBool*);
   FerrumStatus (*is_in_water)(ActorRuntimeId, FfiBool*);
+  /**
+   * 实体存档快照。输出未压缩、大端、带根名称的二进制 Compound。
+   */
+  FerrumStatus (*nbt)(ActorRuntimeId, struct FfiByteWriter*);
 } ActorApiV1;
 
 /**

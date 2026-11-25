@@ -56,6 +56,8 @@ pub struct ActorApiV1 {
     pub set_name_tag: extern "C" fn(ActorRuntimeId, FfiStr<'_>) -> FerrumStatus,
     pub is_on_ground: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus,
     pub is_in_water: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus,
+    /// 实体存档快照。输出未压缩、大端、带根名称的二进制 Compound。
+    pub nbt: extern "C" fn(ActorRuntimeId, *mut FfiByteWriter) -> FerrumStatus,
 }
 
 /// 生物能力。非生物返回 INVALID_ARGUMENT；目标消失返回 NOT_FOUND。

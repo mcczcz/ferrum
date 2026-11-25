@@ -3,6 +3,7 @@ use super::{MockHost, check, is_main_thread};
 use ferrum_abi::*;
 use ferrum_host::shim::ShimModCookie;
 use ferrum_sdk::Error;
+use ferrum_sdk::nbt::{NbtCompound, NbtList, io};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
@@ -117,6 +118,7 @@ struct Domain {
     players: Vec<OnlinePlayer>,
     actors: Vec<OtherActor>,
     blocks: BTreeMap<(i32, i32, i32, i32), String>,
+    block_entities: BTreeMap<(i32, i32, i32, i32), NbtCompound>,
     block_types: BTreeMap<String, BlockRuntimeId>,
     loaded_chunks: Vec<(i32, i32, i32)>,
     commands: BTreeMap<u64, Command>,
@@ -425,6 +427,29 @@ extern "C" fn actor_type(id: ActorRuntimeId, out: *mut FfiByteWriter) -> FerrumS
 extern "C" fn actor_kind(id: ActorRuntimeId, out: *mut ActorKind) -> FerrumStatus {
     guard(|| actor_snapshot(id).map_or_else(|s| s, |a| put(out, a.kind)))
 }
+fn write_nbt(out: *mut FfiByteWriter, tag: &NbtCompound) -> FerrumStatus {
+    let mut bytes = Vec::new();
+    match io::write_nbt(&mut bytes, None, tag, io::Flavor::Uncompressed) {
+        Ok(()) => write(out, &bytes),
+        Err(e) => ferrum_host::last_error::fail(FerrumStatus::FAILED, e.to_string()),
+    }
+}
+extern "C" fn actor_nbt(id: ActorRuntimeId, out: *mut FfiByteWriter) -> FerrumStatus {
+    guard(|| {
+        let a = match actor_snapshot(id) {
+            Ok(a) => a,
+            Err(s) => return s,
+        };
+        let mut tag = NbtCompound::new();
+        tag.insert("identifier", a.type_name);
+        tag.insert("UniqueID", id.0 as i64);
+        tag.insert(
+            "Pos",
+            NbtList::from(vec![a.position.x, a.position.y, a.position.z]),
+        );
+        write_nbt(out, &tag)
+    })
+}
 extern "C" fn actor_position(id: ActorRuntimeId, out: *mut Vec3) -> FerrumStatus {
     guard(|| actor_snapshot(id).map_or_else(|s| s, |a| put(out, a.position)))
 }
@@ -530,6 +555,7 @@ pub(super) static ACTOR: ActorApiV1 = ActorApiV1 {
     set_name_tag,
     is_on_ground,
     is_in_water,
+    nbt: actor_nbt,
 };
 pub(super) static MOB: MobApiV1 = MobApiV1 {
     struct_size: size_of::<MobApiV1>() as u32,
@@ -599,6 +625,35 @@ extern "C" fn block_air(dim: DimensionId, pos: BlockPos, out: *mut FfiBool) -> F
         )
     })
 }
+extern "C" fn block_nbt(dim: DimensionId, pos: BlockPos, out: *mut FfiByteWriter) -> FerrumStatus {
+    guard(|| {
+        let (name, _) = match block_snapshot(dim, pos) {
+            Ok(block) => block,
+            Err(s) => return s,
+        };
+        let mut tag = NbtCompound::new();
+        tag.insert("name", name);
+        tag.insert("states", NbtCompound::new());
+        write_nbt(out, &tag)
+    })
+}
+extern "C" fn block_entity_nbt(
+    dim: DimensionId,
+    pos: BlockPos,
+    out: *mut FfiByteWriter,
+) -> FerrumStatus {
+    guard(|| {
+        let key = match block_key(dim, pos) {
+            Ok(key) => key,
+            Err(s) => return s,
+        };
+        if out.is_null() {
+            return FerrumStatus::NULL_POINTER;
+        }
+        let tag = DOMAIN.with(|d| d.borrow().block_entities.get(&key).cloned());
+        tag.map_or(FerrumStatus::OK, |tag| write_nbt(out, &tag))
+    })
+}
 extern "C" fn block_set_type(dim: DimensionId, pos: BlockPos, name: FfiStr<'_>) -> FerrumStatus {
     guard(|| {
         let name = text(name);
@@ -614,7 +669,10 @@ extern "C" fn block_set_type(dim: DimensionId, pos: BlockPos, name: FfiStr<'_>) 
             if !d.block_types.contains_key(&name) {
                 return FerrumStatus::NOT_FOUND;
             }
-            d.blocks.insert(key, name);
+            if d.blocks.get(&key) != Some(&name) {
+                d.block_entities.remove(&key);
+                d.blocks.insert(key, name);
+            }
             FerrumStatus::OK
         })
     })
@@ -625,6 +683,8 @@ pub(super) static BLOCK: BlockApiV1 = BlockApiV1 {
     runtime_id: block_runtime,
     is_air: block_air,
     set_type: block_set_type,
+    nbt: block_nbt,
+    block_entity_nbt,
 };
 pub(super) extern "C" fn register(
     cookie: ShimModCookie,
@@ -844,6 +904,17 @@ impl MockHost {
     }
     pub fn set_block(&self, dim: DimensionId, pos: BlockPos, name: &str) -> Result<(), Error> {
         check(block_set_type(dim, pos, name.into()))
+    }
+    /// 给已加载位置提供方块实体存档；替换该方块时自动清除。
+    pub fn set_block_entity_nbt(
+        &self,
+        dim: DimensionId,
+        pos: BlockPos,
+        tag: NbtCompound,
+    ) -> Result<(), Error> {
+        let key = block_key(dim, pos).map_err(|s| Error::new(s, "无法访问方块位置"))?;
+        DOMAIN.with(|d| d.borrow_mut().block_entities.insert(key, tag));
+        Ok(())
     }
     pub fn add_player(&self, player: MockPlayer) -> ActorRuntimeId {
         DOMAIN.with(|d| {

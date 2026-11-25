@@ -154,6 +154,7 @@ fn load_enable_disable_unload_reload() {
             set_name_tag: player_message,
             is_on_ground: player_operator,
             is_in_water: player_operator,
+            nbt: player_real_name,
         },
         mob_v1: MobApiV1 {
             struct_size: size_of::<MobApiV1>() as u32,
@@ -169,6 +170,8 @@ fn load_enable_disable_unload_reload() {
             runtime_id: block_runtime,
             is_air: block_air,
             set_type: block_set_type,
+            nbt: block_type,
+            block_entity_nbt: block_type,
         },
         player_v1: PlayerApiV1 {
             struct_size: size_of::<PlayerApiV1>() as u32,
