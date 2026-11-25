@@ -20,6 +20,15 @@ impl GameMode {
     pub const UNKNOWN: Self = Self(u32::MAX);
 }
 
+/// 一次解析玩家后读取的值，布局固定，可在回调结束后保留。
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub struct PlayerSnapshot {
+    pub position: Vec3,
+    pub dimension: DimensionId,
+    pub health: f32,
+}
+
 /// ABI 1.1 玩家接口；所有操作仅允许在主线程调用。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -47,4 +56,5 @@ pub struct PlayerApiV1 {
     pub xp_needed_for_next_level: extern "C" fn(ActorRuntimeId, *mut i32) -> FerrumStatus,
     pub add_experience: extern "C" fn(ActorRuntimeId, i32) -> FerrumStatus,
     pub is_hungry: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus,
+    pub snapshot: extern "C" fn(ActorRuntimeId, *mut PlayerSnapshot) -> FerrumStatus,
 }

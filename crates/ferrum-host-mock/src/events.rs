@@ -12,11 +12,13 @@ struct Route {
     cookie: ShimModCookie,
     kind: EventKind,
     priority: EventPriority,
+    include_payload: bool,
 }
 struct Scope {
     subject: Option<ActorRuntimeId>,
     kind: EventKind,
     payload: String,
+    include_payload: bool,
     message: Option<String>,
     cancelled: bool,
 }
@@ -56,6 +58,7 @@ pub(super) extern "C" fn subscribe(
             cookie,
             kind: sub.kind,
             priority: sub.priority,
+            include_payload: sub.include_payload.get(),
         };
         if sub.kind.is_emitter_thread_event() {
             THREAD_ROUTES
@@ -128,8 +131,9 @@ pub(super) extern "C" fn actor(raw: u64, out: *mut ActorRuntimeId) -> FerrumStat
     })
 }
 pub(super) extern "C" fn payload_snbt(raw: u64, out: *mut FfiByteWriter) -> FerrumStatus {
-    guard(|| match scope(raw, |s| s.payload.clone()) {
-        Ok(text) => write(out, text.as_bytes()),
+    guard(|| match scope(raw, |s| s.include_payload.then(|| s.payload.clone())) {
+        Ok(Some(text)) => write(out, text.as_bytes()),
+        Ok(None) => FerrumStatus::UNSUPPORTED,
         Err(s) => s,
     })
 }
@@ -349,6 +353,7 @@ impl MockHost {
                     subject,
                     kind,
                     payload,
+                    include_payload: false,
                     message,
                     cancelled: false,
                 },
@@ -357,15 +362,16 @@ impl MockHost {
                 .routes
                 .iter()
                 .filter(|(_, r)| r.kind == kind)
-                .map(|(h, r)| (r.priority.0, *h))
+                .map(|(h, r)| (r.priority.0, *h, r.include_payload))
                 .collect::<Vec<_>>();
             (raw, routes)
         });
         routes.sort_unstable();
-        for (_, raw) in routes {
+        for (_, raw, include_payload) in routes {
             if !BUS.with(|b| b.borrow().routes.contains_key(&raw)) {
                 continue;
             }
+            scope(raw_scope, |s| s.include_payload = include_payload).expect("active shim event scope");
             let _ = ferrum_host::event::ferrum_host_dispatch_event(raw, raw_scope);
             self.flush_disables();
             if BUS.with(|b| {

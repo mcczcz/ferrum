@@ -55,7 +55,8 @@ static FerrumStatus eventGuard(F&& f) noexcept {
 struct EventScope {
     std::optional<ActorRuntimeId> mActor;
     bool                          mPlayer{};
-    std::string                   mPayload;
+    std::optional<CompoundTag>    mTag;
+    std::optional<std::string>    mPayload;
     std::optional<std::string>    mChat;
     std::optional<bool>           mCancelled;
     std::function<void()>         mCancel;
@@ -78,9 +79,7 @@ static FerrumStatus dispatch(ListenerHandle handle, EventScope& scope) {
 }
 
 template <class E>
-static EventScope snapshot(E& event) {
-    EventScope  scope;
-    CompoundTag data;
+static void capturePayload(E& event, CompoundTag& data) {
     event.serialize(data);
     if constexpr (std::is_base_of_v<ll::event::ServiceEvent, E>) {
         if (auto const& service = event.service()) {
@@ -89,7 +88,12 @@ static EventScope snapshot(E& event) {
             data.putInt64("serviceVersion", static_cast<int64_t>(id.version));
         }
     }
-    scope.mPayload = data.toSnbt(SnbtFormat::Minimize);
+}
+
+template <class E>
+static EventScope snapshot(E& event, bool includePayload) {
+    EventScope scope;
+    if (includePayload) capturePayload(event, scope.mTag.emplace());
     if constexpr (std::is_base_of_v<ll::event::ActorEvent, E>) {
         scope.mActor  = event.self().getRuntimeID().rawID;
         scope.mPlayer = std::is_base_of_v<ll::event::PlayerEvent, E>;
@@ -101,23 +105,28 @@ static EventScope snapshot(E& event) {
 
 template <class E>
 static FerrumStatus
-attachEvent(std::shared_ptr<FerrumMod> const& owner, ListenerHandle handle, EventPriority priority) {
+attachEvent(std::shared_ptr<FerrumMod> const& owner, ListenerHandle handle, EventSubscriptionV1 const& sub) {
     auto listener = ll::event::Listener<E>::create(
-        [handle](E& event) {
+        [handle, includePayload = sub.include_payload != FfiBool_FALSE](E& event) {
             (void)eventGuard([&] {
                 if constexpr (std::is_same_v<E, ll::event::ConsoleOutputtingEvent>
                               || std::is_same_v<E, ll::event::ConsoleOutputtedEvent>
                               || std::is_base_of_v<ll::event::ServiceEvent, E>) {
-                    auto scope = snapshot(event);
+                    CompoundTag tag;
+                    capturePayload(event, tag);
+                    auto payload = tag.toSnbt(SnbtFormat::Minimize);
                     std::string message;
                     if constexpr (requires { event.message(); }) message = event.message();
                     auto bytes = [](std::string const& text) -> FfiStr {
                         return {reinterpret_cast<uint8_t const*>(text.data()), text.size()};
                     };
+                    FfiBool cancelled = FfiBool_FALSE;
+                    if constexpr (requires { event.isCancelled(); }) {
+                        if (event.isCancelled()) cancelled = FfiBool_TRUE;
+                    }
                     FfiBool cancel = FfiBool_FALSE;
                     auto status = ferrum_host_dispatch_thread_event(
-                        handle, bytes(scope.mPayload), bytes(message),
-                        scope.mCancelled.value_or(false) ? FfiBool_TRUE : FfiBool_FALSE, &cancel
+                        handle, bytes(payload), bytes(message), cancelled, &cancel
                     );
                     if constexpr (requires { event.cancel(); }) {
                         if (cancel) event.cancel();
@@ -125,12 +134,12 @@ attachEvent(std::shared_ptr<FerrumMod> const& owner, ListenerHandle handle, Even
                     return status;
                 }
                 if (!ferrum_host_is_main_thread()) return FerrumStatus_WRONG_THREAD;
-                auto scope = snapshot(event);
+                auto scope = snapshot(event, includePayload);
                 if constexpr (requires { event.cancel(); }) scope.mCancel = [&event] { event.cancel(); };
                 return dispatch(handle, scope);
             });
         },
-        static_cast<ll::event::EventPriority>(priority),
+        static_cast<ll::event::EventPriority>(sub.priority),
         owner
     );
     // 先保存再注册，异常时移除，避免留下不能由宿主注销的 LL 监听器。
@@ -156,79 +165,79 @@ subscribeEvent(ShimModCookie cookie, ListenerHandle handle, EventSubscriptionV1 
         auto owner = *static_cast<std::shared_ptr<FerrumMod>*>(cookie);
         switch (sub->kind) {
         case EventKind_PLAYER_JOIN:
-            return attachEvent<ll::event::PlayerJoinEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerJoinEvent>(owner, handle, *sub);
         case EventKind_PLAYER_DISCONNECT:
-            return attachEvent<ll::event::PlayerDisconnectEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerDisconnectEvent>(owner, handle, *sub);
         case EventKind_PLAYER_CHAT:
-            return attachEvent<ll::event::PlayerChatEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerChatEvent>(owner, handle, *sub);
         case EventKind_EXECUTING_COMMAND:
-            return attachEvent<ll::event::ExecutingCommandEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::ExecutingCommandEvent>(owner, handle, *sub);
         case EventKind_EXECUTED_COMMAND:
-            return attachEvent<ll::event::ExecutedCommandEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::ExecutedCommandEvent>(owner, handle, *sub);
         case EventKind_SERVER_COMMAND_REGISTER:
-            return attachEvent<ll::event::ServerCommandRegisterEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::ServerCommandRegisterEvent>(owner, handle, *sub);
         case EventKind_ACTOR_HURT:
-            return attachEvent<ll::event::ActorHurtEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::ActorHurtEvent>(owner, handle, *sub);
         case EventKind_MOB_DIE:
-            return attachEvent<ll::event::MobDieEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::MobDieEvent>(owner, handle, *sub);
         case EventKind_CONSOLE_OUTPUTTING:
-            return attachEvent<ll::event::ConsoleOutputtingEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::ConsoleOutputtingEvent>(owner, handle, *sub);
         case EventKind_CONSOLE_OUTPUTTED:
-            return attachEvent<ll::event::ConsoleOutputtedEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::ConsoleOutputtedEvent>(owner, handle, *sub);
         case EventKind_PLAYER_ADD_EXPERIENCE:
-            return attachEvent<ll::event::PlayerAddExperienceEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerAddExperienceEvent>(owner, handle, *sub);
         case EventKind_PLAYER_ATTACK:
-            return attachEvent<ll::event::PlayerAttackEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerAttackEvent>(owner, handle, *sub);
         case EventKind_PLAYER_CHANGE_PERM:
-            return attachEvent<ll::event::PlayerChangePermEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerChangePermEvent>(owner, handle, *sub);
         case EventKind_PLAYER_CONNECT:
-            return attachEvent<ll::event::PlayerConnectEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerConnectEvent>(owner, handle, *sub);
         case EventKind_PLAYER_DESTROY_BLOCK:
-            return attachEvent<ll::event::PlayerDestroyBlockEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerDestroyBlockEvent>(owner, handle, *sub);
         case EventKind_PLAYER_DIE:
-            return attachEvent<ll::event::PlayerDieEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerDieEvent>(owner, handle, *sub);
         case EventKind_PLAYER_INTERACT_BLOCK:
-            return attachEvent<ll::event::PlayerInteractBlockEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerInteractBlockEvent>(owner, handle, *sub);
         case EventKind_PLAYER_JUMP:
-            return attachEvent<ll::event::PlayerJumpEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerJumpEvent>(owner, handle, *sub);
         case EventKind_PLAYER_PICK_UP_ITEM:
-            return attachEvent<ll::event::PlayerPickUpItemEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerPickUpItemEvent>(owner, handle, *sub);
         case EventKind_PLAYER_PLACING_BLOCK:
-            return attachEvent<ll::event::PlayerPlacingBlockEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerPlacingBlockEvent>(owner, handle, *sub);
         case EventKind_PLAYER_PLACED_BLOCK:
-            return attachEvent<ll::event::PlayerPlacedBlockEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerPlacedBlockEvent>(owner, handle, *sub);
         case EventKind_PLAYER_RESPAWN:
-            return attachEvent<ll::event::PlayerRespawnEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerRespawnEvent>(owner, handle, *sub);
         case EventKind_PLAYER_SNEAKING:
-            return attachEvent<ll::event::PlayerSneakingEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerSneakingEvent>(owner, handle, *sub);
         case EventKind_PLAYER_SNEAKED:
-            return attachEvent<ll::event::PlayerSneakedEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerSneakedEvent>(owner, handle, *sub);
         case EventKind_PLAYER_SPRINTING:
-            return attachEvent<ll::event::PlayerSprintingEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerSprintingEvent>(owner, handle, *sub);
         case EventKind_PLAYER_SPRINTED:
-            return attachEvent<ll::event::PlayerSprintedEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerSprintedEvent>(owner, handle, *sub);
         case EventKind_PLAYER_SWING:
-            return attachEvent<ll::event::PlayerSwingEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerSwingEvent>(owner, handle, *sub);
         case EventKind_PLAYER_USE_ITEM:
-            return attachEvent<ll::event::PlayerUseItemEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::PlayerUseItemEvent>(owner, handle, *sub);
         case EventKind_SERVER_STARTED:
-            return attachEvent<ll::event::ServerStartedEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::ServerStartedEvent>(owner, handle, *sub);
         case EventKind_SERVER_STOPPING:
-            return attachEvent<ll::event::ServerStoppingEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::ServerStoppingEvent>(owner, handle, *sub);
         case EventKind_SERVICE_REGISTER:
-            return attachEvent<ll::event::ServiceRegisterEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::ServiceRegisterEvent>(owner, handle, *sub);
         case EventKind_SERVICE_UNREGISTER:
-            return attachEvent<ll::event::ServiceUnregisterEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::ServiceUnregisterEvent>(owner, handle, *sub);
         case EventKind_BLOCK_CHANGED:
-            return attachEvent<ll::event::BlockChangedEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::BlockChangedEvent>(owner, handle, *sub);
         case EventKind_FIRE_SPREAD:
-            return attachEvent<ll::event::FireSpreadEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::FireSpreadEvent>(owner, handle, *sub);
         case EventKind_SERVER_LEVEL_TICK:
-            return attachEvent<ll::event::ServerLevelTickEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::ServerLevelTickEvent>(owner, handle, *sub);
         case EventKind_SPAWNING_MOB:
-            return attachEvent<ll::event::SpawningMobEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::SpawningMobEvent>(owner, handle, *sub);
         case EventKind_SPAWNED_MOB:
-            return attachEvent<ll::event::SpawnedMobEvent>(owner, handle, sub->priority);
+            return attachEvent<ll::event::SpawnedMobEvent>(owner, handle, *sub);
         default:
             return FerrumStatus_UNSUPPORTED;
         }
@@ -294,7 +303,11 @@ static FerrumStatus chatMessage(uint64_t id, FfiByteWriter* out) noexcept {
     });
 }
 static FerrumStatus payloadSnbt(uint64_t id, FfiByteWriter* out) noexcept {
-    return withEvent(id, [&](EventScope& scope) { return writeEventText(out, scope.mPayload); });
+    return withEvent(id, [&](EventScope& scope) {
+        if (!scope.mTag) return FerrumStatus_UNSUPPORTED;
+        if (!scope.mPayload) scope.mPayload = scope.mTag->toSnbt(SnbtFormat::Minimize);
+        return writeEventText(out, *scope.mPayload);
+    });
 }
 void installEventApi(FerrumShimApi& api) {
     api.event_subscribe    = subscribeEvent;

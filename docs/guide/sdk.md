@@ -140,7 +140,7 @@ panic 行为：
 | --- | --- | --- |
 | `ActorRef` / `MobRef` / `PlayerRef` | `ActorOps` | `runtime_id()`、`unique_id()`、`type_name()`、`kind()`、`position()`、`dimension()`、`teleport(pos, dim)`、`name_tag()`、`set_name_tag(name)`、`is_on_ground()`、`is_in_water()` |
 | `MobRef` / `PlayerRef` | `MobOps` | `health()`、`max_health()`、`set_health(v)`、`is_sprinting()`、`set_sprinting(enabled)` |
-| `PlayerRef` | 固有方法 | `real_name()`、`uuid()`、`send_message(text)`、`is_operator()`、`game_mode()`、`set_game_mode(m)`、`is_hungry()`、`xp_earned_at_current_level()`、`xp_needed_for_next_level()`、`add_experience(points)` |
+| `PlayerRef` | 固有方法 | `snapshot()`、`real_name()`、`uuid()`、`send_message(text)`、`is_operator()`、`game_mode()`、`set_game_mode(m)`、`is_hungry()`、`xp_earned_at_current_level()`、`xp_needed_for_next_level()`、`add_experience(points)` |
 
 转换：
 

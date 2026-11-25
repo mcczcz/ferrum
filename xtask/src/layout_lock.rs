@@ -115,6 +115,7 @@ fn assertions() -> Vec<String> {
         ranking
     );
     lock!(out, PlayerUuid, bytes);
+    lock!(out, PlayerSnapshot, position, dimension, health);
     lock!(out, Vec3, x, y, z);
     lock!(out, DimensionId);
     lock!(out, GameMode);
@@ -140,7 +141,8 @@ fn assertions() -> Vec<String> {
         xp_earned_at_current_level,
         xp_needed_for_next_level,
         add_experience,
-        is_hungry
+        is_hungry,
+        snapshot
     );
     lock!(out, CommandHandle);
     lock!(out, TaskHandle);
@@ -227,7 +229,7 @@ fn assertions() -> Vec<String> {
     lock!(out, EventScopeHandle);
     lock!(out, EventKind);
     lock!(out, EventPriority);
-    lock!(out, EventSubscriptionV1, struct_size, kind, priority);
+    lock!(out, EventSubscriptionV1, struct_size, kind, priority, include_payload);
     lock!(out, EventCallbackV1, env, invoke_fn, drop_fn);
     lock!(
         out,

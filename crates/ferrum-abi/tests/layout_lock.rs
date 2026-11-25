@@ -341,3 +341,13 @@ const _: () = assert!(size_of::<FormApiV1>() >= 16);
 const _: () = assert!(align_of::<FormApiV1>() == 8);
 const _: () = assert!(offset_of!(FormApiV1, struct_size) == 0);
 const _: () = assert!(offset_of!(FormApiV1, send) == 8);
+
+const _: () = assert!(size_of::<PlayerSnapshot>() == 20);
+const _: () = assert!(align_of::<PlayerSnapshot>() == 4);
+const _: () = assert!(offset_of!(PlayerSnapshot, position) == 0);
+const _: () = assert!(offset_of!(PlayerSnapshot, dimension) == 12);
+const _: () = assert!(offset_of!(PlayerSnapshot, health) == 16);
+const _: () = assert!(size_of::<PlayerApiV1>() >= 168);
+const _: () = assert!(offset_of!(PlayerApiV1, snapshot) == 160);
+const _: () = assert!(size_of::<EventSubscriptionV1>() >= 16);
+const _: () = assert!(offset_of!(EventSubscriptionV1, include_payload) == 12);

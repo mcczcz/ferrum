@@ -49,6 +49,7 @@ macro_rules! unavailable {
         extern "C" fn $name($(_: $arg),*) -> FerrumStatus { FerrumStatus::SERVICE_UNAVAILABLE }
     };
 }
+unavailable!(player_snapshot(ActorRuntimeId, *mut ferrum_abi::PlayerSnapshot));
 unavailable!(player_name(FfiStr<'_>, *mut ActorRuntimeId));
 unavailable!(player_uuid_find(PlayerUuid, *mut ActorRuntimeId));
 unavailable!(player_list(*mut FfiByteWriter));
@@ -118,6 +119,7 @@ fn load_enable_disable_unload_reload() {
         log_loader,
         request_disable,
         release_cookie,
+        form_send: None,
         command_register,
         command_unregister,
         command_origin,
@@ -189,6 +191,7 @@ fn load_enable_disable_unload_reload() {
             xp_needed_for_next_level: player_int,
             add_experience: player_add,
             is_hungry: player_operator,
+            snapshot: player_snapshot,
         },
     };
     // SAFETY: shim 函数为 'static。

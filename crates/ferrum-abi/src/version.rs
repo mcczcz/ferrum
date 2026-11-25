@@ -5,7 +5,7 @@ pub const FERRUM_ABI_MAGIC: u64 = 0x4645_5252_554D_4142;
 pub const FERRUM_ABI_MAJOR: u16 = 1;
 
 /// 当前 ABI 次版本；每次向任意已发布 VTable 尾追加字段时递增。
-pub const FERRUM_ABI_MINOR: u16 = 3;
+pub const FERRUM_ABI_MINOR: u16 = 4;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

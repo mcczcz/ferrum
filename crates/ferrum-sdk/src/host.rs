@@ -162,6 +162,7 @@ domain_api!(PlayerApi, player_api, PlayerApiV1, "ferrum.player.v1",
     xp_needed_for_next_level: extern "C" fn(ActorRuntimeId, *mut i32) -> FerrumStatus;
     add_experience: extern "C" fn(ActorRuntimeId, i32) -> FerrumStatus;
     is_hungry: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    snapshot: extern "C" fn(ActorRuntimeId, *mut ferrum_abi::PlayerSnapshot) -> FerrumStatus;
 });
 
 domain_api!(CustomEventPublisherApi, custom_event_publisher_api, CustomEventPublisherApiV1, "ferrum.custom_event_publisher.v1",

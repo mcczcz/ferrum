@@ -113,6 +113,8 @@ pub struct EventSubscriptionV1 {
     pub struct_size: u32,
     pub kind: EventKind,
     pub priority: EventPriority,
+    /// 完整订阅在监听器入口采集 NBT。触发线程事件必须设为真。
+    pub include_payload: FfiBool,
 }
 
 /// 注册成功才接管 env；调用与析构都在主线程且不持有宿主锁。

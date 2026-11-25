@@ -72,6 +72,10 @@ extern "C" fn add_experience(id: ActorRuntimeId, value: i32) -> FerrumStatus {
 extern "C" fn is_hungry(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
     call(|a| (a.is_hungry)(id, out))
 }
+extern "C" fn snapshot(id: ActorRuntimeId, out: *mut PlayerSnapshot) -> FerrumStatus {
+    call(|a| (a.snapshot)(id, out))
+}
+
 pub static PLAYER_V1: PlayerApiV1 = PlayerApiV1 {
     struct_size: size_of::<PlayerApiV1>() as u32,
     find_by_name,
@@ -93,4 +97,5 @@ pub static PLAYER_V1: PlayerApiV1 = PlayerApiV1 {
     xp_needed_for_next_level,
     add_experience,
     is_hungry,
+    snapshot,
 };

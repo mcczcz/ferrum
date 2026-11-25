@@ -284,6 +284,15 @@ typedef uint32_t FerrumGameMode;
 #define FerrumGameMode_UNKNOWN UINT32_MAX
 
 /**
+ * 一次解析玩家后读取的值，布局固定，可在回调结束后保留。
+ */
+typedef struct PlayerSnapshot {
+  struct FerrumVec3 position;
+  FerrumDimensionId dimension;
+  float health;
+} PlayerSnapshot;
+
+/**
  * ABI 1.1 玩家接口；所有操作仅允许在主线程调用。
  */
 typedef struct PlayerApiV1 {
@@ -316,6 +325,7 @@ typedef struct PlayerApiV1 {
   FerrumStatus (*xp_needed_for_next_level)(ActorRuntimeId, int32_t*);
   FerrumStatus (*add_experience)(ActorRuntimeId, int32_t);
   FerrumStatus (*is_hungry)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*snapshot)(ActorRuntimeId, struct PlayerSnapshot*);
 } PlayerApiV1;
 
 typedef GenerationalHandle CommandHandle;
@@ -475,6 +485,10 @@ typedef struct EventSubscriptionV1 {
   uint32_t struct_size;
   EventKind kind;
   EventPriority priority;
+  /**
+   * 完整订阅在监听器入口采集 NBT。触发线程事件必须设为真。
+   */
+  FfiBool include_payload;
 } EventSubscriptionV1;
 
 typedef GenerationalHandle CustomListenerHandle;

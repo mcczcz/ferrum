@@ -1,5 +1,5 @@
 use crate::{ActorOps, ActorRef, Error, MainThreadToken, MobOps, MobRef, Result, host, sealed};
-pub use ferrum_abi::{ActorRuntimeId, DimensionId, GameMode, PlayerUuid, Vec3};
+pub use ferrum_abi::{ActorRuntimeId, DimensionId, GameMode, PlayerSnapshot, PlayerUuid, Vec3};
 use ferrum_abi::{FerrumStatus, FfiBool, FfiStr};
 
 /// 玩家能力层：组合 MobRef，通过 ActorOps / MobOps 复用父层操作。
@@ -13,6 +13,12 @@ impl<'tick> PlayerRef<'tick> {
     }
     pub(crate) fn from_mob(mob: MobRef<'tick>) -> Self {
         Self { mob }
+    }
+    /// 一次读取当前位置、维度和生命值。
+    pub fn snapshot(&self) -> Result<PlayerSnapshot> {
+        let mut out = PlayerSnapshot::default();
+        host::check((host::player_api()?.snapshot()?)(self.runtime_id(), &mut out))?;
+        Ok(out)
     }
     pub fn real_name(&self) -> Result<String> {
         let real_name = host::player_api()?.real_name()?;

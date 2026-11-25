@@ -85,12 +85,14 @@ pub type ModEntryFnV1 = unsafe extern "C" fn(
    - 读取方访问字段前必须检查 `struct_size >= offset_of!(T, field) + size_of::<Field>()`。
    - SDK 用 `domain_api!` 生成的槽位访问器（`require_field`）：先检查边界，再用 `addr_of!` 读字段。不构造整表引用，也不因整表比 SDK 新而拒绝仍有可用槽位的旧宿主。
    - SDK 对每个接口用 `OnceLock` 缓存子表指针和 `struct_size`（包括查询失败的结果）。缺少尾部字段时，只有对应方法返回 `UNSUPPORTED`。
-2. **只尾追加。** 同一主版本内，已发布字段不得删除、重排、改签名或改语义。新增函数指针只能放在结构末尾，并递增 `FERRUM_ABI_MINOR`（当前 3）。
+2. **只尾追加。** 同一主版本内，已发布字段不得删除、重排、改签名或改语义。新增函数指针只能放在结构末尾，并递增 `FERRUM_ABI_MINOR`（当前 4）。
 3. **按值传递的结构冻结。** 按值或作为 `FfiSlice<T>` 元素传递的结构（`BlockPos`、`Vec3`、各种 ID）大小与对齐发布后不可变，不需要 `struct_size`。需要扩展的数据改为指针加 `struct_size`，或句柄加 getter。
 4. **废弃不删除。** 槽位无法再实现时，不能删除或置空。宿主保留桩函数，返回 `UNSUPPORTED` 或安全默认值。
 5. **`query_interface` 取扩展接口。** 新领域用接口标识（如 `ferrum.event.v1`）查询，避免根表膨胀。标识中的 `vN` 是该子表主版本；破坏性变更用新标识并保留旧实现。子表同样遵守第 1、2、4 条。
 
 当前宿主提供 `ferrum.actor.v1`、`ferrum.mob.v1`、`ferrum.block.v1`、`ferrum.player.v1`、`ferrum.command.v1`、`ferrum.event.v1`、`ferrum.custom_event.v1`、`ferrum.custom_event_publisher.v1` 和 ABI 1.2 新增的 `ferrum.scheduler.v1`。宿主目前只在 `min_minor == 0` 时返回子表，其他值返回空指针。
+
+ABI 1.4 为主线程事件订阅追加 `include_payload`，并在 `PlayerApiV1` 末尾追加 `snapshot`，一次返回位置、维度和生命值。
 
 ABI 1.3 新增 `ferrum.llmoney.v1`。SDK 的 `ferrum_sdk::llmoney` 模块通过主线程令牌访问余额、转账、交易记录和排行榜。LegacyMoney 为可选依赖，缺失或停用时调用返回 `SERVICE_UNAVAILABLE`，缺少对应导出函数时返回 `UNSUPPORTED`。
 

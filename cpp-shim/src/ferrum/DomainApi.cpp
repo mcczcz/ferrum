@@ -445,6 +445,19 @@ static FerrumStatus playerIsHungry(ActorRuntimeId id, FfiBool* out) noexcept {
         return FerrumStatus_OK;
     });
 }
+static FerrumStatus playerSnapshot(ActorRuntimeId id, PlayerSnapshot* out) noexcept {
+    return guarded([&] {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        auto* player = resolve(id);
+        if (!player) return FerrumStatus_NOT_FOUND;
+        auto attribute = player->getAttribute(SharedAttributes::HEALTH());
+        auto const* instance = static_cast<AttributeInstance const*>(attribute.mPtr);
+        if (!instance) return FerrumStatus_UNSUPPORTED;
+        auto const& pos = player->getPosition();
+        *out = {{pos.x, pos.y, pos.z}, static_cast<int>(player->getDimensionId()), instance->mCurrentValue};
+        return FerrumStatus_OK;
+    });
+}
 static FerrumStatus playerGameMode(ActorRuntimeId id, FerrumGameMode* out) noexcept {
     return guarded([&] {
         if (!out) return FerrumStatus_NULL_POINTER;
@@ -777,7 +790,8 @@ void installDomainApi(FerrumShimApi& api) {
         playerXpEarnedAtCurrentLevel,
         playerXpNeededForNextLevel,
         playerAddExperience,
-        playerIsHungry
+        playerIsHungry,
+        playerSnapshot
     };
 }
 } // namespace ferrum

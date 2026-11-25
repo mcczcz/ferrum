@@ -36,7 +36,7 @@ ctx.events().subscribe::<PlayerJoinEvent>(token, EventPriority::Normal, |event, 
     Ok(())
 })?;
 
-let listener = ctx.events().subscribe::<PlayerChatEvent>(token, EventPriority::High, |event, _token| {
+let listener = ctx.events().subscribe_light::<PlayerChatEvent>(token, EventPriority::High, |event, _token| {
     if event.message()?.contains("禁止内容") {
         event.cancel()?;
     }

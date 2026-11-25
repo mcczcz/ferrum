@@ -279,13 +279,26 @@ impl Events {
         + 'static,
     ) -> Result<ListenerHandle> {
         let _ = token;
-        self.subscribe_inner::<E, _>(priority, callback)
+        self.subscribe_inner::<E, _, true>(priority, callback)
     }
 
-    fn subscribe_inner<E, F>(&self, priority: EventPriority, callback: F) -> Result<ListenerHandle>
+    /// 只采集类型化字段，跳过事件 NBT 快照。
+    pub fn subscribe_light<E: MainThreadEvent>(
+        &self,
+        _token: &MainThreadToken<'_>,
+        priority: EventPriority,
+        callback: impl for<'tick> FnMut(
+            &LightEventCtx<'tick, E>,
+            &'tick MainThreadToken<'tick>,
+        ) -> Result<()> + 'static,
+    ) -> Result<ListenerHandle> {
+        self.subscribe_inner::<E, _, false>(priority, callback)
+    }
+
+    fn subscribe_inner<E, F, const WITH_PAYLOAD: bool>(&self, priority: EventPriority, callback: F) -> Result<ListenerHandle>
     where
         E: MainThreadEvent,
-        F: for<'tick> FnMut(&EventCtx<'tick, E>, &'tick MainThreadToken<'tick>) -> Result<()>
+        F: for<'tick> FnMut(&EventCtx<'tick, E, WITH_PAYLOAD>, &'tick MainThreadToken<'tick>) -> Result<()>
             + 'static,
     {
         let subscribe = host::event_api()?.subscribe()?;
@@ -293,6 +306,7 @@ impl Events {
             struct_size: size_of::<EventSubscriptionV1>() as u32,
             kind: E::KIND,
             priority: priority.to_abi(),
+            include_payload: WITH_PAYLOAD.into(),
         };
         let env = Box::into_raw(Box::new(CallbackEnv {
             ctx: self.ctx,
@@ -302,7 +316,7 @@ impl Events {
         }));
         let callback = EventCallbackV1 {
             env: env.cast(),
-            invoke_fn: invoke::<E, F>,
+            invoke_fn: invoke::<E, F, WITH_PAYLOAD>,
             drop_fn: drop_callback::<F>,
         };
         let mut out = MaybeUninit::<ListenerHandle>::uninit();
@@ -377,6 +391,7 @@ impl Events {
                 struct_size: size_of::<EventSubscriptionV1>() as u32,
                 kind: E::KIND,
                 priority: priority.to_abi(),
+                include_payload: FfiBool::TRUE,
             };
             let env = Box::into_raw(Box::new(ThreadCallback {
                 ctx,
@@ -456,14 +471,14 @@ struct CallbackEnv<F> {
     callback: UnsafeCell<F>,
 }
 
-extern "C" fn invoke<E, F>(
+extern "C" fn invoke<E, F, const WITH_PAYLOAD: bool>(
     raw: *mut c_void,
     scope: EventScopeHandle,
     _token: RawMainThreadToken,
 ) -> FerrumStatus
 where
     E: MainThreadEvent,
-    F: for<'tick> FnMut(&EventCtx<'tick, E>, &'tick MainThreadToken<'tick>) -> Result<()> + 'static,
+    F: for<'tick> FnMut(&EventCtx<'tick, E, WITH_PAYLOAD>, &'tick MainThreadToken<'tick>) -> Result<()> + 'static,
 {
     // SAFETY: 宿主只在主线程调用，且活跃派发保有 env 所有者的强引用。
     let env = unsafe { &*raw.cast::<CallbackEnv<F>>() };
@@ -502,14 +517,17 @@ extern "C" fn drop_callback<F>(raw: *mut c_void) {
 }
 
 /// 仅在当前回调内有效，不能跨线程或跨 Tick 保存。
-pub struct EventCtx<'tick, E: MainThreadEvent> {
+pub struct EventCtx<'tick, E: MainThreadEvent, const WITH_PAYLOAD: bool = true> {
     ctx: ModContextHandle,
     scope: EventScopeHandle,
     token: &'tick MainThreadToken<'tick>,
     _event: PhantomData<E>,
 }
 
-impl<E: MainThreadEvent> EventCtx<'_, E> {
+/// 轻量订阅提供事件类型对应的字段和取消操作。
+pub type LightEventCtx<'tick, E> = EventCtx<'tick, E, false>;
+
+impl<E: MainThreadEvent> EventCtx<'_, E, true> {
     /// LL 在本监听器收到事件时序列化的 SNBT 快照。字段取决于 LL 版本。
     pub fn payload_snbt(&self) -> Result<String> {
         let read = host::event_api()?.payload_snbt()?;
@@ -517,7 +535,7 @@ impl<E: MainThreadEvent> EventCtx<'_, E> {
     }
 }
 
-impl<'tick, E: ActorEvent> EventCtx<'tick, E> {
+impl<'tick, E: ActorEvent, const WITH_PAYLOAD: bool> EventCtx<'tick, E, WITH_PAYLOAD> {
     pub fn actor(&self) -> Result<crate::ActorRef<'tick>> {
         let mut id = ferrum_abi::ActorRuntimeId::default();
         host::check((host::event_api()?.actor()?)(self.ctx, self.scope, &mut id))?;
@@ -525,13 +543,13 @@ impl<'tick, E: ActorEvent> EventCtx<'tick, E> {
     }
 }
 
-impl<'tick, E: MobEvent> EventCtx<'tick, E> {
+impl<'tick, E: MobEvent, const WITH_PAYLOAD: bool> EventCtx<'tick, E, WITH_PAYLOAD> {
     pub fn mob(&self) -> Result<crate::MobRef<'tick>> {
         Ok(crate::MobRef::from_actor(self.actor()?))
     }
 }
 
-impl<'tick, E: PlayerEvent> EventCtx<'tick, E> {
+impl<'tick, E: PlayerEvent, const WITH_PAYLOAD: bool> EventCtx<'tick, E, WITH_PAYLOAD> {
     pub fn player(&self) -> Result<PlayerRef<'tick>> {
         let mut id = ferrum_abi::ActorRuntimeId::default();
         host::check((host::event_api()?.player()?)(
@@ -541,7 +559,7 @@ impl<'tick, E: PlayerEvent> EventCtx<'tick, E> {
     }
 }
 
-impl<E: CancellableEvent> EventCtx<'_, E> {
+impl<E: CancellableEvent, const WITH_PAYLOAD: bool> EventCtx<'_, E, WITH_PAYLOAD> {
     /// 同步取消底层行为并停止后续 LL 监听器；已完成的修改不会回滚。
     pub fn cancel(&self) -> Result<()> {
         host::check((host::event_api()?.cancel()?)(self.ctx, self.scope))
@@ -556,7 +574,7 @@ impl<E: CancellableEvent> EventCtx<'_, E> {
     }
 }
 
-impl EventCtx<'_, PlayerChatEvent> {
+impl<const WITH_PAYLOAD: bool> EventCtx<'_, PlayerChatEvent, WITH_PAYLOAD> {
     pub fn message(&self) -> Result<String> {
         let read = host::event_api()?.chat_message()?;
         host::read_string(|writer| read(self.ctx, self.scope, writer))

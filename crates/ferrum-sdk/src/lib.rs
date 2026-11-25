@@ -53,12 +53,12 @@ pub use command::{
 pub use context::{ModContext, ModDir};
 pub use custom_events::{CustomEventCtx, CustomEvents};
 pub use error::{Error, ErrorKind, Result};
-pub use events::{EventCtx, EventPriority, Events, ListenerHandle};
+pub use events::{EventCtx, EventPriority, Events, LightEventCtx, ListenerHandle};
 pub use ferrum_macros::mod_entry;
 pub use lifecycle::{FerrumMod, ModEntryPoint};
 pub use logger::{Level, Logger};
 pub use mob::{MobOps, MobRef};
-pub use player::{ActorRuntimeId, DimensionId, GameMode, PlayerRef, PlayerUuid, Vec3};
+pub use player::{ActorRuntimeId, DimensionId, GameMode, PlayerRef, PlayerSnapshot, PlayerUuid, Vec3};
 pub use scheduler::{Scheduler, TaskHandle};
 pub use token::{MainThreadToken, is_main_thread};
 
@@ -85,7 +85,7 @@ pub mod prelude {
         ActorKind, ActorOps, ActorRef, ActorRuntimeId, ActorUniqueId, BlockPos, BlockRef,
         BlockRuntimeId, CommandInvocation, CommandParamKind, CommandPermission, DimensionId, Error,
         ErrorKind, EventPriority, FerrumMod, GameMode, Level, ListenerHandle, Logger,
-        MainThreadToken, MobOps, MobRef, ModContext, ModDir, PlayerRef, PlayerUuid, Result, Vec3,
+        MainThreadToken, MobOps, MobRef, ModContext, ModDir, PlayerRef, PlayerSnapshot, PlayerUuid, Result, Vec3,
         Scheduler, TaskHandle, world,
     };
 }

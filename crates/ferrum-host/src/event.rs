@@ -103,6 +103,9 @@ fn register(
         if subscription.kind.is_emitter_thread_event() != matches!(callback, Callback::Thread(_)) {
             return FerrumStatus::INVALID_ARGUMENT;
         }
+        if matches!(callback, Callback::Thread(_)) && !subscription.include_payload.get() {
+            return FerrumStatus::INVALID_ARGUMENT;
+        }
         if !matches!(
             subscription.priority,
             EventPriority::HIGHEST

@@ -318,6 +318,15 @@ extern "C" fn add_experience(id: ActorRuntimeId, points: i32) -> FerrumStatus {
 extern "C" fn is_hungry(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
     guard(|| player(id, |_| FfiBool::FALSE).map_or_else(|s| s, |v| put(out, v)))
 }
+extern "C" fn snapshot(id: ActorRuntimeId, out: *mut PlayerSnapshot) -> FerrumStatus {
+    guard(|| {
+        player(id, |p| PlayerSnapshot {
+            position: p.state.position,
+            dimension: p.state.dimension,
+            health: p.state.health,
+        }).map_or_else(|s| s, |value| put(out, value))
+    })
+}
 pub(super) static PLAYER: PlayerApiV1 = PlayerApiV1 {
     struct_size: size_of::<PlayerApiV1>() as u32,
     find_by_name: find_name,
@@ -339,6 +348,7 @@ pub(super) static PLAYER: PlayerApiV1 = PlayerApiV1 {
     xp_needed_for_next_level,
     add_experience,
     is_hungry,
+    snapshot,
 };
 
 fn serial(d: &mut Domain) -> GenerationalHandle {
