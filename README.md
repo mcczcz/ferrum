@@ -1,24 +1,25 @@
 # Ferrum
 
-Ferrum 是构建在 [LeviLamina](https://github.com/LiteLDev/LeviLamina) 之上的 Rust 二级模组加载器：
-服主安装 `ferrum-loader`，模组作者只用 Cargo 就能编写 `type = "ferrum"` 的 Rust 模组，
-无需 C++ 工具链、无需 BDS 头文件。
+Ferrum 是构建在 [LeviLamina](https://github.com/LiteLDev/LeviLamina) 之上的 Rust 二级模组加载器。服主在服务端安装 `ferrum-loader`，模组作者只需使用 Cargo 编写 `type = "ferrum"` 的 Rust 模组，无需 C++ 工具链或 BDS 头文件。
 
-> 可用 API：生命周期、日志、模组元数据与目录、panic 防火墙、玩家/实体/方块、命令、玩家事件、自定义事件。
-> ABI 1.2 提供主线程 Tick 调度和可从后台异步任务等待的主线程调用。用法见 [SDK 指南](docs/guide/sdk.md#主线程调度与异步调用)。
+- 当前宿主 ABI：**`1.5`**
+- 已支持能力：生命周期、日志与目录、panic 隔离、玩家 / 实体 / 方块 / NBT、命令、LL 官方事件（主线程与触发线程）、自定义事件（Rust / C++ 互通）、表单、LegacyMoney、主线程调度与异步等待。
 
 ## 写一个模组
 
 ```toml
 # Cargo.toml
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 ferrum-sdk = { git = "https://github.com/Yangyangzhong82/ferrum" }
 
 [dev-dependencies]
 ferrum-host-mock = { git = "https://github.com/Yangyangzhong82/ferrum" }
+
+[profile.release]
+panic = "unwind"
 ```
 
 ```rust
@@ -43,7 +44,7 @@ impl FerrumMod for MyMod {
 }
 ```
 
-`manifest.json`（与 `.dll` 一起放进 `mods/<name>/`）：
+将编译出的 `.dll` 与 `manifest.json` 放入 `mods/<name>/`：
 
 ```json
 {
@@ -55,34 +56,12 @@ impl FerrumMod for MyMod {
 }
 ```
 
-完整示例见 [`examples/hello`](examples/hello)，文档见 [docs/](docs/README.md)。
+完整示例见 [`examples/hello`](examples/hello)。
 
-## 仓库结构
+## 文档导航
 
-| 路径 | 内容 |
-| :--- | :--- |
-| `crates/ferrum-abi` | 纯 C ABI 契约（`#[repr(C)]` VTable） |
-| `crates/ferrum-host` | 宿主运行时（Rust staticlib，链接进 `ferrum-loader.dll`） |
-| `cpp-shim` | 对接 LeviLamina 的 C++ 垫片层，`FerrumModManager` |
-| `crates/ferrum-sdk` / `ferrum-macros` | 模组开发 SDK 与 `#[mod_entry]` |
-| `crates/ferrum-host-mock` | 无需 BDS 的假宿主，用于 `cargo test` |
-| `examples/hello` | 最小示例模组与错误/panic 集成测试 |
-| `xtask` | 生成 `ferrum_abi.h` 与 ABI 布局锁 |
-| `docs` | 架构规范、开发者指南与维护手册 |
-
-## 构建
-
-```powershell
-# 纯 Rust（无需 C++ 环境）
-cargo build -p hello-ferrum
-cargo test --workspace
-
-# ferrum-loader.dll（需要 xmake + clang-cl）
-xmake f -p windows -a x64 -m release -y --target_type=server
-xmake
-```
-
-产物位于 `bin/ferrum-loader/`。详见 [构建](docs/maintain/build.md)。
+- **模组开发者**：从 [快速开始](docs/guide/quick-start.md) 和 [文档索引（模组开发）](docs/README.md#模组开发者文档) 开始。
+- **Loader 维护者与贡献者**：见 [文档索引（项目设计与维护）](docs/README.md#项目设计与维护文档) 与 [构建指南](docs/maintain/build.md)。
 
 ## License
 

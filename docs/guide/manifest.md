@@ -1,6 +1,6 @@
 # manifest.json
 
-Ferrum 模组沿用 LeviLamina 的 `manifest.json` 和依赖规划，`type` 取 `"ferrum"`。
+Ferrum 模组沿用 LeviLamina 的 `manifest.json` 格式，只需将 `type` 设为 `"ferrum"`。
 
 ```json
 {
@@ -17,28 +17,23 @@ Ferrum 模组沿用 LeviLamina 的 `manifest.json` 和依赖规划，`type` 取 
 }
 ```
 
-## 字段
+## 字段说明
 
 | 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `name` | 是 | 必须等于模组目录名 |
-| `entry` | 是 | 模组 dll 文件名，相对模组目录 |
-| `version` | 否 | 缺省时 `ctx.version()` 返回 `"0.0.0"` |
-| `type` | 是 | 固定 `"ferrum"` |
-| `dependencies` | 是 | 应含 `ferrum-loader` |
-| `author` `description` `optionalDependencies` `conflicts` `loadBefore` | 否 | 与 LeviLamina 原生含义相同 |
+| :--- | :--- | :--- |
+| `name` | 是 | 必须与模组目录名完全一致 |
+| `entry` | 是 | 模组 DLL 文件名，相对模组目录 |
+| `version` | 否 | 语义化版本；省略时 `ctx.version()` 返回 `"0.0.0"` |
+| `type` | 是 | 固定为 `"ferrum"` |
+| `dependencies` | 是 | 必须包含 `ferrum-loader` |
+| `author` `description` `optionalDependencies` `conflicts` `loadBefore` | 否 | 与 LeviLamina 原生含义一致 |
 
-## 规则
+## 约束
 
-1. `name` 与目录名不一致，LL 拒绝加载。目录 `mods/hello-ferrum/` 对应 `"name": "hello-ferrum"`。
-2. `type` 必须是 `"ferrum"`，模组才会交给 Ferrum 的模组管理器并执行 ABI 握手。
-3. `dependencies` 应包含 `ferrum-loader`。这样 LL 会先加载它，`ll mod unload ferrum-loader --cascade` 也会先卸载依赖它的模组。
-4. 版本约束写显式前缀，如 `"^0.1.0"`、`">=0.1.2 <0.2.0"`、`"=0.1.0"`。裸版本号在 LL 中触发弃用警告。
+1. `name` 与 `mods/<name>/` 目录名不一致时，LeviLamina 会拒绝加载。
+2. `type` 必须为 `"ferrum"`。
+3. `dependencies` 应显式声明 `ferrum-loader` 与显式版本前缀（如 `"^0.1.0"`），以保证加载顺序与 `--cascade` 级联卸载正确。
 
-## 打包
+## 分发
 
-用 `lip` 发布时，`tooth.json` 依赖 `ferrum-loader` 包，把 dll 和 `manifest.json` 映射到 `mods/<name>/`。服主不需要安装 Rust。
-
-## 模组间交互
-
-跨模组服务调用尚未实现，规划中，见 [../roadmap.md](../roadmap.md)。当前可用 [events.md](./events.md) 中的自定义事件做松耦合通知。
+使用 `lip` 打包时，在 `tooth.json` 中声明对 `ferrum-loader` 的依赖，将 DLL 与 `manifest.json` 部署到 `mods/<name>/` 即可。服主无需安装 Rust 工具链。
