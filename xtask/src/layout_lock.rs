@@ -64,6 +64,8 @@ fn assertions() -> Vec<String> {
     lock!(out, ActorRuntimeId);
     lock!(out, ActorUniqueId);
     lock!(out, ActorKind);
+    lock!(out, Vec2, x, y);
+    lock!(out, Aabb, min, max);
     lock!(out, BlockPos, x, y, z);
     lock!(out, BlockRuntimeId);
     lock!(
@@ -81,7 +83,31 @@ fn assertions() -> Vec<String> {
         set_name_tag,
         is_on_ground,
         is_in_water,
-        nbt
+        nbt,
+        feet_position,
+        head_position,
+        velocity,
+        position_delta,
+        rotation,
+        eye_position,
+        fall_distance,
+        aabb,
+        block_pos_standing_on,
+        is_swimming,
+        is_moving,
+        is_sneaking,
+        is_crawling,
+        is_gliding,
+        is_invisible,
+        is_alive,
+        is_dead,
+        is_on_fire,
+        is_sleeping,
+        is_blocking,
+        set_on_fire,
+        stop_fire,
+        set_sneaking,
+        teleport_with_rotation
     );
     lock!(
         out,
@@ -91,7 +117,16 @@ fn assertions() -> Vec<String> {
         max_health,
         set_health,
         is_sprinting,
-        set_sprinting
+        set_sprinting,
+        speed,
+        set_speed,
+        armor_value,
+        death_time,
+        item_use_duration,
+        item_use_startup_progress,
+        item_use_interval_progress,
+        jump_multiplier,
+        is_able_to_move
     );
     lock!(
         out,

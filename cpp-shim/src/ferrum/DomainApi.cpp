@@ -17,7 +17,10 @@
 #include "mc/platform/UUID.h"
 #include "mc/server/commands/CurrentCmdVersion.h"
 #include "mc/world/actor/ActorCategory.h"
+#include "mc/world/actor/Mob.h"
 #include "mc/world/actor/player/Player.h"
+#include "mc/world/phys/AABB.h"
+#include "mc/deps/core/math/Vec2.h"
 #include "mc/world/attribute/AttributeInstance.h"
 #include "mc/world/attribute/AttributeInstanceConstRef.h"
 #include "mc/world/attribute/BaseAttributeMap.h"
@@ -438,6 +441,184 @@ static FerrumStatus mobSetSprinting(ActorRuntimeId id, FfiBool sprinting) noexce
         return FerrumStatus_OK;
     });
 }
+static FerrumStatus actorFeetPosition(ActorRuntimeId id, FerrumVec3* out) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        auto pos = actor.getFeetPos();
+        *out = {pos.x, pos.y, pos.z};
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus actorHeadPosition(ActorRuntimeId id, FerrumVec3* out) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        auto pos = actor.getHeadPos();
+        *out = {pos.x, pos.y, pos.z};
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus actorVelocity(ActorRuntimeId id, FerrumVec3* out) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        auto velocity = actor.getVelocity();
+        *out = {velocity.x, velocity.y, velocity.z};
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus actorPositionDelta(ActorRuntimeId id, FerrumVec3* out) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        auto delta = actor.getPosDelta();
+        *out = {delta.x, delta.y, delta.z};
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus actorRotation(ActorRuntimeId id, FerrumVec2* out) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        auto rotation = actor.getRotation();
+        *out = {rotation.x, rotation.y};
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus actorEyePosition(ActorRuntimeId id, FerrumVec3* out) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        auto pos = actor.getEyePos();
+        *out = {pos.x, pos.y, pos.z};
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus actorFallDistance(ActorRuntimeId id, float* out) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = actor.getFallDistance();
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus actorAabb(ActorRuntimeId id, FerrumAabb* out) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        auto const& bounds = actor.getAABB();
+        *out = {{bounds.min.x, bounds.min.y, bounds.min.z}, {bounds.max.x, bounds.max.y, bounds.max.z}};
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus actorBlockPosStandingOn(ActorRuntimeId id, FerrumBlockPos* out) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        auto pos = actor.getBlockPosCurrentlyStandingOn(&actor);
+        *out = {pos.x, pos.y, pos.z};
+        return FerrumStatus_OK;
+    });
+}
+template <class F>
+static FerrumStatus actorFlag(ActorRuntimeId id, FfiBool* out, F&& value) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = value(actor) ? FfiBool_TRUE : FfiBool_FALSE;
+        return FerrumStatus_OK;
+    });
+}
+#define FERRUM_ACTOR_FLAG(name, method) \
+    static FerrumStatus name(ActorRuntimeId id, FfiBool* out) noexcept { \
+        return actorFlag(id, out, [](Actor const& actor) { return actor.method(); }); \
+    }
+FERRUM_ACTOR_FLAG(actorIsSwimming, isSwimming)
+FERRUM_ACTOR_FLAG(actorIsMoving, isMoving)
+FERRUM_ACTOR_FLAG(actorIsSneaking, isSneaking)
+FERRUM_ACTOR_FLAG(actorIsCrawling, isCrawling)
+FERRUM_ACTOR_FLAG(actorIsGliding, isGliding)
+FERRUM_ACTOR_FLAG(actorIsInvisible, isInvisible)
+FERRUM_ACTOR_FLAG(actorIsAlive, isAlive)
+FERRUM_ACTOR_FLAG(actorIsDead, isDead)
+FERRUM_ACTOR_FLAG(actorIsOnFire, isOnFire)
+FERRUM_ACTOR_FLAG(actorIsSleeping, isSleeping)
+FERRUM_ACTOR_FLAG(actorIsBlocking, isBlocking)
+#undef FERRUM_ACTOR_FLAG
+static FerrumStatus actorSetOnFire(ActorRuntimeId id, int32_t seconds, FfiBool showEffect) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (seconds < 0) return FerrumStatus_INVALID_ARGUMENT;
+        actor.setOnFire(seconds, showEffect != 0);
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus actorStopFire(ActorRuntimeId id) noexcept {
+    return withActor(id, [&](Actor& actor) { actor.stopFire(); return FerrumStatus_OK; });
+}
+static FerrumStatus actorSetSneaking(ActorRuntimeId id, FfiBool value) noexcept {
+    return withActor(id, [&](Actor& actor) { actor.setSneaking(value != 0); return FerrumStatus_OK; });
+}
+static FerrumStatus actorTeleportWithRotation(ActorRuntimeId id, FerrumVec3 pos, FerrumVec2 rotation, FerrumDimensionId dim) noexcept {
+    return withActor(id, [&](Actor& actor) {
+        if (!std::isfinite(pos.x) || !std::isfinite(pos.y) || !std::isfinite(pos.z) ||
+            !std::isfinite(rotation.x) || !std::isfinite(rotation.y)) return FerrumStatus_INVALID_ARGUMENT;
+        auto level = ll::service::getLevel();
+        if (!level) return FerrumStatus_SERVICE_UNAVAILABLE;
+        if (!level->getDimension(::DimensionType{dim}).lock()) return FerrumStatus_NOT_FOUND;
+        actor.teleport(::Vec3{pos.x, pos.y, pos.z}, ::DimensionType{dim}, ::Vec2{rotation.x, rotation.y});
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus mobSpeed(ActorRuntimeId id, float* out) noexcept {
+    return withMob(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = static_cast<Mob&>(actor).getSpeed();
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus mobSetSpeed(ActorRuntimeId id, float value) noexcept {
+    return withMob(id, [&](Actor& actor) {
+        if (!std::isfinite(value) || value < 0) return FerrumStatus_INVALID_ARGUMENT;
+        static_cast<Mob&>(actor).setSpeed(value);
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus mobArmorValue(ActorRuntimeId id, int32_t* out) noexcept {
+    return withMob(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = static_cast<Mob&>(actor).getArmorValue();
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus mobDeathTime(ActorRuntimeId id, int32_t* out) noexcept {
+    return withMob(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = static_cast<Mob&>(actor).getDeathTime();
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus mobItemUseDuration(ActorRuntimeId id, int32_t* out) noexcept {
+    return withMob(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = static_cast<Mob&>(actor).getItemUseDuration();
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus mobItemUseStartupProgress(ActorRuntimeId id, float* out) noexcept {
+    return withMob(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = static_cast<Mob&>(actor).getItemUseStartupProgress();
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus mobItemUseIntervalProgress(ActorRuntimeId id, float* out) noexcept {
+    return withMob(id, [&](Actor& actor) {
+        if (!out) return FerrumStatus_NULL_POINTER;
+        *out = static_cast<Mob&>(actor).getItemUseIntervalProgress();
+        return FerrumStatus_OK;
+    });
+}
+static FerrumStatus mobJumpMultiplier(ActorRuntimeId id, float* out) noexcept {
+    return withMob(id, [&](Actor&) {
+        return out ? FerrumStatus_UNSUPPORTED : FerrumStatus_NULL_POINTER;
+    });
+}
+static FerrumStatus mobIsAbleToMove(ActorRuntimeId id, FfiBool* out) noexcept {
+    return withMob(id, [&](Actor&) {
+        return out ? FerrumStatus_UNSUPPORTED : FerrumStatus_NULL_POINTER;
+    });
+}
 static FerrumStatus playerXpEarnedAtCurrentLevel(ActorRuntimeId id, int32_t* out) noexcept {
     return guarded([&] {
         auto* player = resolve(id);
@@ -784,11 +965,44 @@ void installDomainApi(FerrumShimApi& api) {
         actorSetNameTag,
         actorIsOnGround,
         actorIsInWater,
-        actorNbt
+        actorNbt,
+        actorFeetPosition,
+        actorHeadPosition,
+        actorVelocity,
+        actorPositionDelta,
+        actorRotation,
+        actorEyePosition,
+        actorFallDistance,
+        actorAabb,
+        actorBlockPosStandingOn,
+        actorIsSwimming,
+        actorIsMoving,
+        actorIsSneaking,
+        actorIsCrawling,
+        actorIsGliding,
+        actorIsInvisible,
+        actorIsAlive,
+        actorIsDead,
+        actorIsOnFire,
+        actorIsSleeping,
+        actorIsBlocking,
+        actorSetOnFire,
+        actorStopFire,
+        actorSetSneaking,
+        actorTeleportWithRotation
     };
     api.mob_v1             = {sizeof(MobApiV1), mobHealth, mobMaxHealth, mobSetHealth,
         mobIsSprinting,
-        mobSetSprinting
+        mobSetSprinting,
+        mobSpeed,
+        mobSetSpeed,
+        mobArmorValue,
+        mobDeathTime,
+        mobItemUseDuration,
+        mobItemUseStartupProgress,
+        mobItemUseIntervalProgress,
+        mobJumpMultiplier,
+        mobIsAbleToMove
     };
     api.block_v1           = {sizeof(BlockApiV1), blockType, blockRuntime, blockAir, blockSetType, blockNbt, blockEntityNbt};
     api.command_register   = registerCommand;

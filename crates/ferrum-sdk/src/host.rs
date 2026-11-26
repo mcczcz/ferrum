@@ -250,6 +250,30 @@ domain_api!(ActorApi, actor_api, ActorApiV1, "ferrum.actor.v1",
     is_on_ground: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
     is_in_water: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
     nbt: extern "C" fn(ActorRuntimeId, *mut FfiByteWriter) -> FerrumStatus;
+    feet_position: extern "C" fn(ActorRuntimeId, *mut Vec3) -> FerrumStatus;
+    head_position: extern "C" fn(ActorRuntimeId, *mut Vec3) -> FerrumStatus;
+    velocity: extern "C" fn(ActorRuntimeId, *mut Vec3) -> FerrumStatus;
+    position_delta: extern "C" fn(ActorRuntimeId, *mut Vec3) -> FerrumStatus;
+    rotation: extern "C" fn(ActorRuntimeId, *mut ferrum_abi::Vec2) -> FerrumStatus;
+    eye_position: extern "C" fn(ActorRuntimeId, *mut Vec3) -> FerrumStatus;
+    fall_distance: extern "C" fn(ActorRuntimeId, *mut f32) -> FerrumStatus;
+    aabb: extern "C" fn(ActorRuntimeId, *mut ferrum_abi::Aabb) -> FerrumStatus;
+    block_pos_standing_on: extern "C" fn(ActorRuntimeId, *mut BlockPos) -> FerrumStatus;
+    is_swimming: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    is_moving: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    is_sneaking: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    is_crawling: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    is_gliding: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    is_invisible: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    is_alive: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    is_dead: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    is_on_fire: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    is_sleeping: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    is_blocking: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
+    set_on_fire: extern "C" fn(ActorRuntimeId, i32, FfiBool) -> FerrumStatus;
+    stop_fire: extern "C" fn(ActorRuntimeId) -> FerrumStatus;
+    set_sneaking: extern "C" fn(ActorRuntimeId, FfiBool) -> FerrumStatus;
+    teleport_with_rotation: extern "C" fn(ActorRuntimeId, Vec3, ferrum_abi::Vec2, DimensionId) -> FerrumStatus;
 });
 
 domain_api!(MobApi, mob_api, MobApiV1, "ferrum.mob.v1",
@@ -259,6 +283,15 @@ domain_api!(MobApi, mob_api, MobApiV1, "ferrum.mob.v1",
     set_health: extern "C" fn(ActorRuntimeId, f32) -> FerrumStatus;
     is_sprinting: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
     set_sprinting: extern "C" fn(ActorRuntimeId, FfiBool) -> FerrumStatus;
+    speed: extern "C" fn(ActorRuntimeId, *mut f32) -> FerrumStatus;
+    set_speed: extern "C" fn(ActorRuntimeId, f32) -> FerrumStatus;
+    armor_value: extern "C" fn(ActorRuntimeId, *mut i32) -> FerrumStatus;
+    death_time: extern "C" fn(ActorRuntimeId, *mut i32) -> FerrumStatus;
+    item_use_duration: extern "C" fn(ActorRuntimeId, *mut i32) -> FerrumStatus;
+    item_use_startup_progress: extern "C" fn(ActorRuntimeId, *mut f32) -> FerrumStatus;
+    item_use_interval_progress: extern "C" fn(ActorRuntimeId, *mut f32) -> FerrumStatus;
+    jump_multiplier: extern "C" fn(ActorRuntimeId, *mut f32) -> FerrumStatus;
+    is_able_to_move: extern "C" fn(ActorRuntimeId, *mut FfiBool) -> FerrumStatus;
 });
 
 /// 宿主调用失败后立即取回 last-error，组装为 [`Error`]。

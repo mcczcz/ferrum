@@ -34,12 +34,63 @@ impl MockActor {
         }
     }
 }
-#[derive(Default)]
 struct ActorState {
     name_tag: String,
     sprinting: bool,
     on_ground: bool,
     in_water: bool,
+    velocity: Vec3,
+    position_delta: Vec3,
+    rotation: Vec2,
+    fall_distance: f32,
+    swimming: bool,
+    moving: bool,
+    sneaking: bool,
+    crawling: bool,
+    gliding: bool,
+    invisible: bool,
+    alive: bool,
+    dead: bool,
+    on_fire: bool,
+    sleeping: bool,
+    blocking: bool,
+    speed: f32,
+    armor_value: i32,
+    death_time: i32,
+    item_use_duration: i32,
+    item_use_startup_progress: f32,
+    item_use_interval_progress: f32,
+}
+impl Default for ActorState {
+    fn default() -> Self {
+        Self {
+            name_tag: String::new(),
+            sprinting: false,
+            on_ground: false,
+            in_water: false,
+            velocity: Vec3::default(),
+            position_delta: Vec3::default(),
+            rotation: Vec2::default(),
+            fall_distance: 0.0,
+            swimming: false,
+            moving: false,
+            sneaking: false,
+            crawling: false,
+            gliding: false,
+            invisible: false,
+            alive: true,
+            dead: false,
+            on_fire: false,
+            sleeping: false,
+            blocking: false,
+            speed: 0.1,
+            armor_value: 0,
+            death_time: 0,
+            item_use_duration: 0,
+            item_use_startup_progress: 0.0,
+            item_use_interval_progress: 0.0,
+        }
+    }
 }
 
 struct OtherActor {
@@ -542,6 +593,182 @@ extern "C" fn is_in_water(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus
 extern "C" fn is_sprinting(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
     guard(|| actor_state(id, true, |a| a.sprinting).map_or_else(|s| s, |v| put(out, v.into())))
 }
+extern "C" fn feet_position(id: ActorRuntimeId, out: *mut Vec3) -> FerrumStatus {
+    guard(|| actor_snapshot(id).map_or_else(|s| s, |a| put(out, a.position)))
+}
+extern "C" fn head_position(id: ActorRuntimeId, out: *mut Vec3) -> FerrumStatus {
+    guard(|| {
+        actor_snapshot(id).map_or_else(
+            |s| s,
+            |mut a| {
+                a.position.y += 1.8;
+                put(out, a.position)
+            },
+        )
+    })
+}
+extern "C" fn velocity(id: ActorRuntimeId, out: *mut Vec3) -> FerrumStatus {
+    guard(|| actor_state(id, false, |a| a.velocity).map_or_else(|s| s, |v| put(out, v)))
+}
+extern "C" fn position_delta(id: ActorRuntimeId, out: *mut Vec3) -> FerrumStatus {
+    guard(|| actor_state(id, false, |a| a.position_delta).map_or_else(|s| s, |v| put(out, v)))
+}
+extern "C" fn rotation(id: ActorRuntimeId, out: *mut Vec2) -> FerrumStatus {
+    guard(|| actor_state(id, false, |a| a.rotation).map_or_else(|s| s, |v| put(out, v)))
+}
+extern "C" fn eye_position(id: ActorRuntimeId, out: *mut Vec3) -> FerrumStatus {
+    guard(|| {
+        actor_snapshot(id).map_or_else(
+            |s| s,
+            |mut a| {
+                a.position.y += 1.62;
+                put(out, a.position)
+            },
+        )
+    })
+}
+extern "C" fn fall_distance(id: ActorRuntimeId, out: *mut f32) -> FerrumStatus {
+    guard(|| actor_state(id, false, |a| a.fall_distance).map_or_else(|s| s, |v| put(out, v)))
+}
+extern "C" fn aabb(id: ActorRuntimeId, out: *mut Aabb) -> FerrumStatus {
+    guard(|| {
+        actor_snapshot(id).map_or_else(
+            |s| s,
+            |a| {
+                put(
+                    out,
+                    Aabb {
+                        min: Vec3::new(a.position.x - 0.3, a.position.y, a.position.z - 0.3),
+                        max: Vec3::new(a.position.x + 0.3, a.position.y + 1.8, a.position.z + 0.3),
+                    },
+                )
+            },
+        )
+    })
+}
+extern "C" fn block_pos_standing_on(id: ActorRuntimeId, out: *mut BlockPos) -> FerrumStatus {
+    guard(|| {
+        actor_snapshot(id).map_or_else(
+            |s| s,
+            |a| {
+                put(
+                    out,
+                    BlockPos::new(
+                        a.position.x.floor() as i32,
+                        a.position.y.floor() as i32 - 1,
+                        a.position.z.floor() as i32,
+                    ),
+                )
+            },
+        )
+    })
+}
+macro_rules! actor_bool_api {
+    ($name:ident, $field:ident) => {
+        extern "C" fn $name(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
+            guard(|| {
+                actor_state(id, false, |a| a.$field).map_or_else(|s| s, |v| put(out, v.into()))
+            })
+        }
+    };
+}
+actor_bool_api!(is_swimming, swimming);
+actor_bool_api!(is_moving, moving);
+actor_bool_api!(is_sneaking, sneaking);
+actor_bool_api!(is_crawling, crawling);
+actor_bool_api!(is_gliding, gliding);
+actor_bool_api!(is_invisible, invisible);
+actor_bool_api!(is_alive, alive);
+actor_bool_api!(is_dead, dead);
+actor_bool_api!(is_on_fire, on_fire);
+actor_bool_api!(is_sleeping, sleeping);
+actor_bool_api!(is_blocking, blocking);
+extern "C" fn set_on_fire(id: ActorRuntimeId, seconds: i32, _effect: FfiBool) -> FerrumStatus {
+    guard(|| {
+        if seconds < 0 {
+            return FerrumStatus::INVALID_ARGUMENT;
+        }
+        actor_state(id, false, |a| a.on_fire = seconds > 0).map_or_else(|s| s, |_| FerrumStatus::OK)
+    })
+}
+extern "C" fn stop_fire(id: ActorRuntimeId) -> FerrumStatus {
+    guard(|| actor_state(id, false, |a| a.on_fire = false).map_or_else(|s| s, |_| FerrumStatus::OK))
+}
+extern "C" fn set_sneaking(id: ActorRuntimeId, value: FfiBool) -> FerrumStatus {
+    guard(|| {
+        actor_state(id, false, |a| a.sneaking = value.get())
+            .map_or_else(|s| s, |_| FerrumStatus::OK)
+    })
+}
+extern "C" fn teleport_with_rotation(
+    id: ActorRuntimeId,
+    pos: Vec3,
+    rot: Vec2,
+    dim: DimensionId,
+) -> FerrumStatus {
+    guard(|| {
+        if !valid_position(pos) || !rot.x.is_finite() || !rot.y.is_finite() {
+            return FerrumStatus::INVALID_ARGUMENT;
+        }
+        if !dimension_exists(dim) {
+            return FerrumStatus::NOT_FOUND;
+        }
+        let status = edit_actor(id, |a| {
+            a.position = pos;
+            a.dimension = dim;
+        });
+        if !status.is_ok() {
+            return status;
+        }
+        actor_state(id, false, |a| a.rotation = rot).map_or_else(|s| s, |_| FerrumStatus::OK)
+    })
+}
+extern "C" fn speed(id: ActorRuntimeId, out: *mut f32) -> FerrumStatus {
+    guard(|| actor_state(id, true, |a| a.speed).map_or_else(|s| s, |v| put(out, v)))
+}
+extern "C" fn set_speed(id: ActorRuntimeId, value: f32) -> FerrumStatus {
+    guard(|| {
+        if !value.is_finite() || value < 0.0 {
+            return FerrumStatus::INVALID_ARGUMENT;
+        }
+        actor_state(id, true, |a| a.speed = value).map_or_else(|s| s, |_| FerrumStatus::OK)
+    })
+}
+extern "C" fn armor_value(id: ActorRuntimeId, out: *mut i32) -> FerrumStatus {
+    guard(|| actor_state(id, true, |a| a.armor_value).map_or_else(|s| s, |v| put(out, v)))
+}
+extern "C" fn death_time(id: ActorRuntimeId, out: *mut i32) -> FerrumStatus {
+    guard(|| actor_state(id, true, |a| a.death_time).map_or_else(|s| s, |v| put(out, v)))
+}
+extern "C" fn item_use_duration(id: ActorRuntimeId, out: *mut i32) -> FerrumStatus {
+    guard(|| actor_state(id, true, |a| a.item_use_duration).map_or_else(|s| s, |v| put(out, v)))
+}
+extern "C" fn item_use_startup_progress(id: ActorRuntimeId, out: *mut f32) -> FerrumStatus {
+    guard(|| {
+        actor_state(id, true, |a| a.item_use_startup_progress).map_or_else(|s| s, |v| put(out, v))
+    })
+}
+extern "C" fn item_use_interval_progress(id: ActorRuntimeId, out: *mut f32) -> FerrumStatus {
+    guard(|| {
+        actor_state(id, true, |a| a.item_use_interval_progress).map_or_else(|s| s, |v| put(out, v))
+    })
+}
+extern "C" fn jump_multiplier(id: ActorRuntimeId, out: *mut f32) -> FerrumStatus {
+    guard(|| {
+        if out.is_null() {
+            return FerrumStatus::NULL_POINTER;
+        }
+        actor_state(id, true, |_| ()).map_or_else(|s| s, |_| FerrumStatus::UNSUPPORTED)
+    })
+}
+extern "C" fn is_able_to_move(id: ActorRuntimeId, out: *mut FfiBool) -> FerrumStatus {
+    guard(|| {
+        if out.is_null() {
+            return FerrumStatus::NULL_POINTER;
+        }
+        actor_state(id, true, |_| ()).map_or_else(|s| s, |_| FerrumStatus::UNSUPPORTED)
+    })
+}
 pub(super) static ACTOR: ActorApiV1 = ActorApiV1 {
     struct_size: size_of::<ActorApiV1>() as u32,
     find_by_unique_id: actor_find,
@@ -556,6 +783,30 @@ pub(super) static ACTOR: ActorApiV1 = ActorApiV1 {
     is_on_ground,
     is_in_water,
     nbt: actor_nbt,
+    feet_position,
+    head_position,
+    velocity,
+    position_delta,
+    rotation,
+    eye_position,
+    fall_distance,
+    aabb,
+    block_pos_standing_on,
+    is_swimming,
+    is_moving,
+    is_sneaking,
+    is_crawling,
+    is_gliding,
+    is_invisible,
+    is_alive,
+    is_dead,
+    is_on_fire,
+    is_sleeping,
+    is_blocking,
+    set_on_fire,
+    stop_fire,
+    set_sneaking,
+    teleport_with_rotation,
 };
 pub(super) static MOB: MobApiV1 = MobApiV1 {
     struct_size: size_of::<MobApiV1>() as u32,
@@ -564,6 +815,15 @@ pub(super) static MOB: MobApiV1 = MobApiV1 {
     set_health: mob_set_health,
     is_sprinting,
     set_sprinting,
+    speed,
+    set_speed,
+    armor_value,
+    death_time,
+    item_use_duration,
+    item_use_startup_progress,
+    item_use_interval_progress,
+    jump_multiplier,
+    is_able_to_move,
 };
 
 fn block_key(dim: DimensionId, pos: BlockPos) -> Result<(i32, i32, i32, i32), FerrumStatus> {

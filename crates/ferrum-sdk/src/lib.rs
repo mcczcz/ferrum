@@ -46,7 +46,7 @@ pub(crate) mod sealed {
     pub trait Sealed {}
 }
 
-pub use actor::{ActorKind, ActorOps, ActorRef, ActorUniqueId};
+pub use actor::{Aabb, ActorKind, ActorOps, ActorRef, ActorUniqueId, Vec2};
 pub use block::{BlockPos, BlockRef, BlockRuntimeId};
 pub use command::{
     CommandBuilder, CommandHandle, CommandInvocation, CommandParamKind, CommandPermission, Commands,
@@ -83,11 +83,11 @@ const fn parse_u16(s: &str) -> u16 {
 
 pub mod prelude {
     pub use crate::{
-        ActorKind, ActorOps, ActorRef, ActorRuntimeId, ActorUniqueId, BlockPos, BlockRef,
+        Aabb, ActorKind, ActorOps, ActorRef, ActorRuntimeId, ActorUniqueId, BlockPos, BlockRef,
         BlockRuntimeId, CommandInvocation, CommandParamKind, CommandPermission, DimensionId, Error,
         ErrorKind, EventPriority, FerrumMod, GameMode, Level, ListenerHandle, Logger,
-        MainThreadToken, MobOps, MobRef, ModContext, ModDir, PlayerRef, PlayerSnapshot, PlayerUuid, Result, Vec3,
-        Scheduler, TaskHandle, world,
+        MainThreadToken, MobOps, MobRef, ModContext, ModDir, PlayerRef, PlayerSnapshot, PlayerUuid,
+        Result, Scheduler, TaskHandle, Vec2, Vec3, world,
     };
 }
 

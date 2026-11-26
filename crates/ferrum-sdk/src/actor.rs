@@ -1,5 +1,5 @@
 use crate::{MainThreadToken, MobRef, PlayerRef, Result, host, sealed};
-pub use ferrum_abi::{ActorKind, ActorRuntimeId, ActorUniqueId, DimensionId, Vec3};
+pub use ferrum_abi::{Aabb, ActorKind, ActorRuntimeId, ActorUniqueId, DimensionId, Vec2, Vec3};
 use ferrum_abi::{FfiBool, FfiStr};
 use std::marker::PhantomData;
 
@@ -131,4 +131,148 @@ pub trait ActorOps<'tick>: sealed::Sealed + Copy {
         ))?;
         Ok(out.get())
     }
+    fn feet_position(&self) -> Result<Vec3> {
+        let mut out = Vec3::default();
+        host::check((host::actor_api()?.feet_position()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out)
+    }
+    fn head_position(&self) -> Result<Vec3> {
+        let mut out = Vec3::default();
+        host::check((host::actor_api()?.head_position()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out)
+    }
+    fn velocity(&self) -> Result<Vec3> {
+        let mut out = Vec3::default();
+        host::check((host::actor_api()?.velocity()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out)
+    }
+    fn position_delta(&self) -> Result<Vec3> {
+        let mut out = Vec3::default();
+        host::check((host::actor_api()?.position_delta()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out)
+    }
+    fn rotation(&self) -> Result<Vec2> {
+        let mut out = Vec2::default();
+        host::check((host::actor_api()?.rotation()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out)
+    }
+    fn eye_position(&self) -> Result<Vec3> {
+        let mut out = Vec3::default();
+        host::check((host::actor_api()?.eye_position()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out)
+    }
+    fn fall_distance(&self) -> Result<f32> {
+        let mut out = 0.0;
+        host::check((host::actor_api()?.fall_distance()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out)
+    }
+    fn aabb(&self) -> Result<Aabb> {
+        let mut out = Aabb::default();
+        host::check((host::actor_api()?.aabb()?)(self.runtime_id(), &mut out))?;
+        Ok(out)
+    }
+    fn block_pos_standing_on(&self) -> Result<crate::BlockPos> {
+        let mut out = crate::BlockPos::default();
+        host::check((host::actor_api()?.block_pos_standing_on()?)(
+            self.runtime_id(),
+            &mut out,
+        ))?;
+        Ok(out)
+    }
+    fn is_swimming(&self) -> Result<bool> {
+        actor_flag(self.runtime_id(), |api| api.is_swimming())
+    }
+    fn is_moving(&self) -> Result<bool> {
+        actor_flag(self.runtime_id(), |api| api.is_moving())
+    }
+    fn is_sneaking(&self) -> Result<bool> {
+        actor_flag(self.runtime_id(), |api| api.is_sneaking())
+    }
+    fn is_crawling(&self) -> Result<bool> {
+        actor_flag(self.runtime_id(), |api| api.is_crawling())
+    }
+    fn is_gliding(&self) -> Result<bool> {
+        actor_flag(self.runtime_id(), |api| api.is_gliding())
+    }
+    fn is_invisible(&self) -> Result<bool> {
+        actor_flag(self.runtime_id(), |api| api.is_invisible())
+    }
+    fn is_alive(&self) -> Result<bool> {
+        actor_flag(self.runtime_id(), |api| api.is_alive())
+    }
+    fn is_dead(&self) -> Result<bool> {
+        actor_flag(self.runtime_id(), |api| api.is_dead())
+    }
+    fn is_on_fire(&self) -> Result<bool> {
+        actor_flag(self.runtime_id(), |api| api.is_on_fire())
+    }
+    fn is_sleeping(&self) -> Result<bool> {
+        actor_flag(self.runtime_id(), |api| api.is_sleeping())
+    }
+    fn is_blocking(&self) -> Result<bool> {
+        actor_flag(self.runtime_id(), |api| api.is_blocking())
+    }
+    fn set_on_fire(&self, seconds: i32, show_effect: bool) -> Result<()> {
+        host::check((host::actor_api()?.set_on_fire()?)(
+            self.runtime_id(),
+            seconds,
+            show_effect.into(),
+        ))
+    }
+    fn stop_fire(&self) -> Result<()> {
+        host::check((host::actor_api()?.stop_fire()?)(self.runtime_id()))
+    }
+    fn set_sneaking(&self, sneaking: bool) -> Result<()> {
+        host::check((host::actor_api()?.set_sneaking()?)(
+            self.runtime_id(),
+            sneaking.into(),
+        ))
+    }
+    fn teleport_with_rotation(
+        &self,
+        position: Vec3,
+        rotation: Vec2,
+        dimension: DimensionId,
+    ) -> Result<()> {
+        host::check((host::actor_api()?.teleport_with_rotation()?)(
+            self.runtime_id(),
+            position,
+            rotation,
+            dimension,
+        ))
+    }
+}
+
+fn actor_flag(
+    id: ActorRuntimeId,
+    field: impl FnOnce(
+        &host::ActorApi,
+    ) -> Result<
+        extern "C" fn(ActorRuntimeId, *mut FfiBool) -> ferrum_abi::FerrumStatus,
+    >,
+) -> Result<bool> {
+    let mut out = FfiBool::FALSE;
+    host::check(field(host::actor_api()?)?(id, &mut out))?;
+    Ok(out.get())
 }

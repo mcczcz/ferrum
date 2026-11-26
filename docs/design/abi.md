@@ -28,7 +28,7 @@ pub type ModEntryFnV1 = unsafe extern "C" fn(
 ## 3. 演进规则与当前接口
 
 1. **首字段 `struct_size: u32`**：所有可扩展 VTable 与配置结构首字段必须是 `struct_size`。读取方访问字段前必须校验 `struct_size >= offset_of!(T, field) + size_of::<Field>()`（SDK 通过 `host.rs` 中的 `domain_api!` 宏用 `addr_of!` 按槽位读取，不构造整表引用）。
-2. **只尾追加**：同一主版本内禁止删除、重排或修改既有字段签名/语义；新增字段只能追加到末尾并递增 `FERRUM_ABI_MINOR`（当前 **`5`**）。废弃槽位保留桩函数返回 `UNSUPPORTED`。
+2. **只尾追加**：同一主版本内禁止删除、重排或修改既有字段签名/语义；新增字段只能追加到末尾并递增 `FERRUM_ABI_MINOR`（当前 **`6`**）。废弃槽位保留桩函数返回 `UNSUPPORTED`。
 3. **按值结构冻结**：按值或 `FfiSlice<T>` 元素传递的结构（`BlockPos`、`Vec3`、`PlayerSnapshot`、各类 ID）发布后布局永久冻结。
 4. **`query_interface` 扩展子表**：新领域通过接口 ID 查询，目前 `min_minor` 仅接受 `0`：
 
@@ -40,6 +40,7 @@ pub type ModEntryFnV1 = unsafe extern "C" fn(
 | 1.3 | `ferrum.form.v1`、`ferrum.llmoney.v1` | 表单（JSON 借用与一次性回调）、LegacyMoney 经济接口 |
 | 1.4 | `PlayerApiV1::snapshot`、`EventSubscriptionV1::include_payload` | 玩家原子快照、轻量事件订阅 |
 | 1.5 | `ActorApiV1::nbt`、`BlockApiV1::{nbt, block_entity_nbt}` | 实体与方块二进制 NBT 快照 |
+| 1.6 | `ActorApiV1`、`MobApiV1` 尾追加 | 实体运动、碰撞与状态查询；生物速度、护甲和物品使用属性 |
 
 ## 4. 布局锁与 C 头文件
 

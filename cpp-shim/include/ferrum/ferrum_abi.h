@@ -416,6 +416,16 @@ typedef uint32_t ActorKind;
 #define ActorKind_MOB 1
 #define ActorKind_PLAYER 2
 
+typedef struct FerrumVec2 {
+  float x;
+  float y;
+} FerrumVec2;
+
+typedef struct FerrumAabb {
+  struct FerrumVec3 min;
+  struct FerrumVec3 max;
+} FerrumAabb;
+
 typedef struct ActorApiV1 {
   uint32_t struct_size;
   FerrumStatus (*find_by_unique_id)(ActorUniqueId, ActorRuntimeId*);
@@ -433,6 +443,33 @@ typedef struct ActorApiV1 {
    * 实体存档快照。输出未压缩、大端、带根名称的二进制 Compound。
    */
   FerrumStatus (*nbt)(ActorRuntimeId, struct FfiByteWriter*);
+  FerrumStatus (*feet_position)(ActorRuntimeId, struct FerrumVec3*);
+  FerrumStatus (*head_position)(ActorRuntimeId, struct FerrumVec3*);
+  FerrumStatus (*velocity)(ActorRuntimeId, struct FerrumVec3*);
+  FerrumStatus (*position_delta)(ActorRuntimeId, struct FerrumVec3*);
+  FerrumStatus (*rotation)(ActorRuntimeId, struct FerrumVec2*);
+  FerrumStatus (*eye_position)(ActorRuntimeId, struct FerrumVec3*);
+  FerrumStatus (*fall_distance)(ActorRuntimeId, float*);
+  FerrumStatus (*aabb)(ActorRuntimeId, struct FerrumAabb*);
+  FerrumStatus (*block_pos_standing_on)(ActorRuntimeId, struct FerrumBlockPos*);
+  FerrumStatus (*is_swimming)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*is_moving)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*is_sneaking)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*is_crawling)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*is_gliding)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*is_invisible)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*is_alive)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*is_dead)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*is_on_fire)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*is_sleeping)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*is_blocking)(ActorRuntimeId, FfiBool*);
+  FerrumStatus (*set_on_fire)(ActorRuntimeId, int32_t, FfiBool);
+  FerrumStatus (*stop_fire)(ActorRuntimeId);
+  FerrumStatus (*set_sneaking)(ActorRuntimeId, FfiBool);
+  FerrumStatus (*teleport_with_rotation)(ActorRuntimeId,
+                                         struct FerrumVec3,
+                                         struct FerrumVec2,
+                                         FerrumDimensionId);
 } ActorApiV1;
 
 /**
@@ -445,6 +482,15 @@ typedef struct MobApiV1 {
   FerrumStatus (*set_health)(ActorRuntimeId, float);
   FerrumStatus (*is_sprinting)(ActorRuntimeId, FfiBool*);
   FerrumStatus (*set_sprinting)(ActorRuntimeId, FfiBool);
+  FerrumStatus (*speed)(ActorRuntimeId, float*);
+  FerrumStatus (*set_speed)(ActorRuntimeId, float);
+  FerrumStatus (*armor_value)(ActorRuntimeId, int32_t*);
+  FerrumStatus (*death_time)(ActorRuntimeId, int32_t*);
+  FerrumStatus (*item_use_duration)(ActorRuntimeId, int32_t*);
+  FerrumStatus (*item_use_startup_progress)(ActorRuntimeId, float*);
+  FerrumStatus (*item_use_interval_progress)(ActorRuntimeId, float*);
+  FerrumStatus (*jump_multiplier)(ActorRuntimeId, float*);
+  FerrumStatus (*is_able_to_move)(ActorRuntimeId, FfiBool*);
 } MobApiV1;
 
 typedef uint32_t EventKind;

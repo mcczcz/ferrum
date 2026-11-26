@@ -47,6 +47,8 @@ pub fn run(check: bool) -> Result<bool, String> {
             ],
             rename: [
                 ("Vec3".to_owned(), "FerrumVec3".to_owned()),
+                ("Vec2".to_owned(), "FerrumVec2".to_owned()),
+                ("Aabb".to_owned(), "FerrumAabb".to_owned()),
                 ("BlockPos".to_owned(), "FerrumBlockPos".to_owned()),
                 ("DimensionId".to_owned(), "FerrumDimensionId".to_owned()),
                 ("GameMode".to_owned(), "FerrumGameMode".to_owned()),
